@@ -1,0 +1,4 @@
+Health|HP01|Health Care Comprehensive|500000.0|12|8000.0
+Life|LP01|Term Life Shield|1000000.0|24|12000.0
+Vehicle|VP01|Motor Comprehensive Cover|300000.0|12|5000.0
+Travel|TP01|Global Travel Guard|200000.0|6|3000.0
