@@ -91,13 +91,25 @@ public class Main {
         if (sub == 1) {
             System.out.print("Enter full name: ");
             String name = sc.nextLine().trim();
-            int age = readInt(sc, "Enter age: ");
-            System.out.print("Enter 10-digit phone number: ");
-            String phone = sc.nextLine().trim();
+            while (name.isEmpty()) {
+                System.out.print("Name cannot be empty. Please enter full name: ");
+                name = sc.nextLine().trim();
+            }
+
+            int age = readAge(sc, "Enter age: ");
+            String phone = readPhone(sc, "Enter 10-digit phone number: ");
+
             System.out.print("Enter address: ");
             String address = sc.nextLine().trim();
+            while (address.isEmpty()) {
+                System.out.print("Address cannot be empty. Please enter address: ");
+                address = sc.nextLine().trim();
+            }
 
-            manager.registerCustomer(name, age, phone, address);
+            Customer c = manager.registerCustomer(name, age, phone, address);
+            if (c == null) {
+                System.out.println("Registration could not be completed. Please verify your inputs.");
+            }
         } else if (sub == 2) {
             System.out.print("Enter Customer ID (e.g. C101): ");
             String custId = sc.nextLine().trim();
@@ -458,6 +470,39 @@ public class Main {
                 return Double.parseDouble(input);
             } catch (NumberFormatException e) {
                 System.out.println("Input Error: Please enter a valid decimal number.");
+            }
+        }
+    }
+
+    /**
+     * Reads and strictly validates age input.
+     * Rejects negative numbers and zero with an immediate error message and re-prompts.
+     */
+    private static int readAge(Scanner sc, String prompt) {
+        while (true) {
+            int age = readInt(sc, prompt);
+            if (age <= 0) {
+                System.out.println("Validation Error: Age cannot be negative or zero. Please enter a valid positive age (1-120).");
+            } else if (age > 120) {
+                System.out.println("Validation Error: Age cannot exceed 120. Please enter a realistic age (1-120).");
+            } else {
+                return age;
+            }
+        }
+    }
+
+    /**
+     * Reads and strictly validates phone number input.
+     * Rejects phone numbers less than 10 digits with an immediate error message and re-prompts.
+     */
+    private static String readPhone(Scanner sc, String prompt) {
+        while (true) {
+            System.out.print(prompt);
+            String phone = sc.nextLine().trim();
+            if (phone.length() < 10) {
+                System.out.println("Validation Error: Phone number must be at least 10 digits.");
+            } else {
+                return phone;
             }
         }
     }

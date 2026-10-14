@@ -60,18 +60,43 @@ public class InsuranceManager {
         claimCount = 0;
 
         actionStack = new ActionStack(25);
+
+        // Always seed initial default plans upon creation
+        seedDefaultPlansIfEmpty();
     }
 
     /**
      * Seeds initial sample insurance plans if no plans exist (e.g., first run without saved files).
      */
     public void seedDefaultPlansIfEmpty() {
-        if (planCount == 0) {
-            addPlan(new HealthPlan("HP01", "Health Care Comprehensive", 500000.0, 12, 8000.0));
-            addPlan(new LifePlan("LP01", "Term Life Shield", 1000000.0, 24, 12000.0));
-            addPlan(new VehiclePlan("VP01", "Motor Comprehensive Cover", 300000.0, 12, 5000.0));
-            addPlan(new TravelPlan("TP01", "Global Travel Guard", 200000.0, 6, 3000.0));
+        if (findPlanByIdInternal("HP01") == null) {
+            addPlanInternal(new HealthPlan("HP01", "Health Care Comprehensive", 500000.0, 12, 8000.0));
         }
+        if (findPlanByIdInternal("LP01") == null) {
+            addPlanInternal(new LifePlan("LP01", "Term Life Shield", 1000000.0, 24, 12000.0));
+        }
+        if (findPlanByIdInternal("VP01") == null) {
+            addPlanInternal(new VehiclePlan("VP01", "Motor Comprehensive Cover", 300000.0, 12, 5000.0));
+        }
+        if (findPlanByIdInternal("TP01") == null) {
+            addPlanInternal(new TravelPlan("TP01", "Global Travel Guard", 200000.0, 6, 3000.0));
+        }
+    }
+
+    private void addPlanInternal(InsurancePlan plan) {
+        if (planCount < MAX_PLANS && plan != null && findPlanByIdInternal(plan.getPlanId()) == null) {
+            plans[planCount++] = plan;
+        }
+    }
+
+    private InsurancePlan findPlanByIdInternal(String planId) {
+        if (planId == null) return null;
+        for (int i = 0; i < planCount; i++) {
+            if (plans[i] != null && planId.equalsIgnoreCase(plans[i].getPlanId())) {
+                return plans[i];
+            }
+        }
+        return null;
     }
 
     // =========================================================================
@@ -206,6 +231,9 @@ public class InsuranceManager {
      */
     public InsurancePlan findPlanById(String planId) {
         if (planId == null) return null;
+        if (planCount == 0) {
+            seedDefaultPlansIfEmpty();
+        }
         for (int i = 0; i < planCount; i++) {
             if (plans[i] != null && planId.equalsIgnoreCase(plans[i].getPlanId())) {
                 return plans[i];
@@ -218,6 +246,9 @@ public class InsuranceManager {
      * Displays all available insurance plans.
      */
     public void displayAllPlans() {
+        if (planCount == 0) {
+            seedDefaultPlansIfEmpty();
+        }
         if (planCount == 0) {
             System.out.println("No insurance plans available.");
             return;
@@ -250,6 +281,9 @@ public class InsuranceManager {
      */
     public void displayPlansByType(String type) {
         if (type == null) return;
+        if (planCount == 0) {
+            seedDefaultPlansIfEmpty();
+        }
         boolean found = false;
         System.out.println("\n--- " + type.toUpperCase() + " INSURANCE PLANS ---");
         System.out.println("-----------------------------------------------------------------------------------------------");
