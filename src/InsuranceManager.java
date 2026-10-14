@@ -1,16 +1,12 @@
 /**
  * InsuranceManager.java
  *
- * Implements Member 2's responsibilities:
+ * Implements Member 2 application logic & Member 3 integration:
  * - Application data storage using fixed-size Java object arrays
- * - Customer management (registration, unique ID generation, search, validation)
- * - Insurance plan management (listing, filtering by type, add/update/remove)
- * - Purchased policy management (purchasing with premium calculation, search, renewal, cancellation)
- * - Payment and claim operations (simulated payment, claim submission, review, approval/rejection)
- * - Admin dashboard analytics and reporting
- *
- * Designed using beginner-friendly SY B.Tech OOP concepts:
- * Object arrays, encapsulation, conditional validation, and loops.
+ * - Customer, Plan, Policy, Payment, and Claim operations
+ * - ActionStack integration for tracking and undoing administrative operations
+ * - FileHandler persistence integration (auto-saving on state changes)
+ * - Safe array accessors and loaders for restarting/reloading application state
  */
 public class InsuranceManager {
 
@@ -37,6 +33,9 @@ public class InsuranceManager {
     private Claim[] claims;
     private int claimCount;
 
+    // Member 3 ActionStack to log recent operations (LIFO)
+    private ActionStack actionStack;
+
     // Auto-increment counters for unique IDs
     private int nextCustomerId = 101;
     private int nextPolicyNumber = 1001;
@@ -60,18 +59,19 @@ public class InsuranceManager {
         claims = new Claim[MAX_CLAIMS];
         claimCount = 0;
 
-        // Seed initial default plans for immediate use
-        seedInitialPlans();
+        actionStack = new ActionStack(25);
     }
 
     /**
-     * Seeds initial sample insurance plans so the system is immediately usable.
+     * Seeds initial sample insurance plans if no plans exist (e.g., first run without saved files).
      */
-    private void seedInitialPlans() {
-        addPlan(new HealthPlan("HP01", "Health Care Comprehensive", 500000.0, 12, 8000.0));
-        addPlan(new LifePlan("LP01", "Term Life Shield", 1000000.0, 24, 12000.0));
-        addPlan(new VehiclePlan("VP01", "Motor Comprehensive Cover", 300000.0, 12, 5000.0));
-        addPlan(new TravelPlan("TP01", "Global Travel Guard", 200000.0, 6, 3000.0));
+    public void seedDefaultPlansIfEmpty() {
+        if (planCount == 0) {
+            addPlan(new HealthPlan("HP01", "Health Care Comprehensive", 500000.0, 12, 8000.0));
+            addPlan(new LifePlan("LP01", "Term Life Shield", 1000000.0, 24, 12000.0));
+            addPlan(new VehiclePlan("VP01", "Motor Comprehensive Cover", 300000.0, 12, 5000.0));
+            addPlan(new TravelPlan("TP01", "Global Travel Guard", 200000.0, 6, 3000.0));
+        }
     }
 
     // =========================================================================
@@ -113,6 +113,10 @@ public class InsuranceManager {
 
         Customer newCustomer = new Customer(customerId, name.trim(), age, phone.trim(), address.trim());
         customers[customerCount++] = newCustomer;
+
+        // Log action and auto-save
+        actionStack.push("Registered Customer: " + newCustomer.getName() + " (" + customerId + ")");
+        FileHandler.saveCustomers(this);
 
         System.out.println("Customer registered successfully!");
         System.out.println("Assigned Customer ID: " + customerId);
@@ -189,6 +193,11 @@ public class InsuranceManager {
             return false;
         }
         plans[planCount++] = plan;
+
+        // Log action and auto-save
+        actionStack.push("Added Plan: " + plan.getPlanId() + " (" + plan.getPlanName() + ")");
+        FileHandler.savePlans(this);
+
         return true;
     }
 
@@ -281,6 +290,10 @@ public class InsuranceManager {
         if (newBasePremium > 0) {
             p.setBasePremium(newBasePremium);
         }
+
+        actionStack.push("Updated Plan: " + planId);
+        FileHandler.savePlans(this);
+
         System.out.println("Plan '" + planId + "' updated successfully.");
         return true;
     }
@@ -307,6 +320,10 @@ public class InsuranceManager {
         }
         plans[planCount - 1] = null;
         planCount--;
+
+        actionStack.push("Removed Plan: " + planId);
+        FileHandler.savePlans(this);
+
         System.out.println("Plan '" + planId + "' has been successfully removed.");
         return true;
     }
@@ -344,6 +361,9 @@ public class InsuranceManager {
         String policyNumber = "POL" + nextPolicyNumber++;
         PurchasedPolicy newPolicy = new PurchasedPolicy(policyNumber, customer.getCustomerId(), plan.getPlanId(), "ACTIVE");
         policies[policyCount++] = newPolicy;
+
+        actionStack.push("Purchased Policy: " + policyNumber + " for " + customer.getName() + " (" + planId + ")");
+        FileHandler.savePolicies(this);
 
         System.out.println("\nPolicy Purchased Successfully!");
         System.out.println("----------------------------------------------");
@@ -432,6 +452,10 @@ public class InsuranceManager {
             return false;
         }
         p.setStatus("ACTIVE");
+
+        actionStack.push("Renewed Policy: " + policyNumber);
+        FileHandler.savePolicies(this);
+
         System.out.println("Policy '" + policyNumber + "' has been successfully renewed! Status is now ACTIVE.");
         return true;
     }
@@ -450,6 +474,10 @@ public class InsuranceManager {
             return false;
         }
         p.setStatus("CANCELLED");
+
+        actionStack.push("Cancelled Policy: " + policyNumber);
+        FileHandler.savePolicies(this);
+
         System.out.println("Policy '" + policyNumber + "' has been successfully CANCELLED.");
         return true;
     }
@@ -487,6 +515,8 @@ public class InsuranceManager {
         payments[paymentCount++] = payment;
 
         if (success) {
+            actionStack.push("Processed Payment: " + paymentId + " of Rs " + amount + " for Policy " + policyNumber);
+            FileHandler.savePayments(this);
             System.out.println("Receipt: Payment ID " + paymentId + " of Rs " + amount + " recorded for Policy " + policyNumber);
         } else {
             System.out.println("Payment transaction failed for Policy " + policyNumber);
@@ -586,6 +616,9 @@ public class InsuranceManager {
         Claim newClaim = new Claim(claimId, policyNumber, description.trim(), claimAmount, "PENDING");
         claims[claimCount++] = newClaim;
 
+        actionStack.push("Submitted Claim: " + claimId + " for Policy " + policyNumber + " (Rs " + claimAmount + ")");
+        FileHandler.saveClaims(this);
+
         System.out.println("\nClaim Submitted Successfully!");
         System.out.println("----------------------------------------------------");
         System.out.println("Claim ID     : " + claimId);
@@ -673,6 +706,10 @@ public class InsuranceManager {
             return false;
         }
         c.setStatus("APPROVED");
+
+        actionStack.push("Approved Claim: " + claimId + " (Rs " + c.getClaimAmount() + ")");
+        FileHandler.saveClaims(this);
+
         System.out.println("Claim '" + claimId + "' for Rs " + c.getClaimAmount() + " has been APPROVED.");
         return true;
     }
@@ -691,17 +728,72 @@ public class InsuranceManager {
             return false;
         }
         c.setStatus("REJECTED");
+
+        actionStack.push("Rejected Claim: " + claimId);
+        FileHandler.saveClaims(this);
+
         System.out.println("Claim '" + claimId + "' has been REJECTED.");
         return true;
     }
 
     // =========================================================================
-    // 6. ADMIN DASHBOARD & ANALYTICS
+    // 6. ACTION STACK & REVERSIBLE UNDO OPERATION
+    // =========================================================================
+
+    public ActionStack getActionStack() {
+        return actionStack;
+    }
+
+    /**
+     * Reversible Undo Operation:
+     * Undoes the most recent plan addition if it was the last action on the stack
+     * and no customers have purchased policies under that plan yet.
+     * Explains limitations clearly for SY viva.
+     */
+    public boolean undoLastPlanAddition() {
+        if (actionStack.isEmpty()) {
+            System.out.println("Undo Failed: Action stack is empty. No operations to undo.");
+            return false;
+        }
+
+        String topAction = actionStack.peek();
+        if (topAction == null || !topAction.startsWith("Added Plan: ")) {
+            System.out.println("Undo Limitation: Only the most recent Plan Addition can be undone.");
+            System.out.println("Top action on stack is: \"" + topAction + "\" (Non-reversible via this operation).");
+            return false;
+        }
+
+        // Parse plan ID from "Added Plan: <planId> (<planName>)"
+        int start = "Added Plan: ".length();
+        int spaceIdx = topAction.indexOf(" ", start);
+        String planId = (spaceIdx != -1) ? topAction.substring(start, spaceIdx) : topAction.substring(start);
+
+        // Check if any policies have been purchased under this plan
+        for (int i = 0; i < policyCount; i++) {
+            if (policies[i] != null && planId.equalsIgnoreCase(policies[i].getPlanId())) {
+                System.out.println("Cannot Undo: Policies have already been purchased under Plan '" + planId + "'.");
+                return false;
+            }
+        }
+
+        // Safe to remove
+        boolean removed = removePlan(planId);
+        if (removed) {
+            actionStack.pop(); // Remove the original "Added Plan" entry
+            actionStack.pop(); // Remove the "Removed Plan" entry generated by removePlan
+            actionStack.push("Undone Addition of Plan: " + planId);
+            System.out.println("SUCCESS: Undo completed. Plan '" + planId + "' was rolled back.");
+            return true;
+        }
+        return false;
+    }
+
+    // =========================================================================
+    // 7. ADMIN DASHBOARD & ASYNCHRONOUS REPORT GENERATOR
     // =========================================================================
 
     /**
-     * Displays a comprehensive dashboard showing customer counts, plans,
-     * purchased policies (active/cancelled), payment statistics, and claim metrics.
+     * Displays standard synchronous dashboard.
      */
     public void displayDashboard() {
         int activePolicies = 0;
@@ -754,10 +846,151 @@ public class InsuranceManager {
         System.out.println("=================================================================");
     }
 
-    // Getters for counts (useful for Member 3 tests and assertions)
+    /**
+     * Generates summary audit report in a separate background thread (Task 3: Multithreading).
+     */
+    public void generateAsyncReport() {
+        int activePolicies = 0;
+        int cancelledPolicies = 0;
+        for (int i = 0; i < policyCount; i++) {
+            if ("ACTIVE".equalsIgnoreCase(policies[i].getStatus())) activePolicies++;
+            else if ("CANCELLED".equalsIgnoreCase(policies[i].getStatus())) cancelledPolicies++;
+        }
+
+        int successfulPayments = 0;
+        double totalRevenue = 0.0;
+        for (int i = 0; i < paymentCount; i++) {
+            if ("SUCCESS".equalsIgnoreCase(payments[i].getStatus())) {
+                successfulPayments++;
+                totalRevenue += payments[i].getAmount();
+            }
+        }
+
+        int pendingClaims = 0;
+        int approvedClaims = 0;
+        int rejectedClaims = 0;
+        double totalApprovedClaimAmount = 0.0;
+        for (int i = 0; i < claimCount; i++) {
+            if ("PENDING".equalsIgnoreCase(claims[i].getStatus())) pendingClaims++;
+            else if ("APPROVED".equalsIgnoreCase(claims[i].getStatus())) {
+                approvedClaims++;
+                totalApprovedClaimAmount += claims[i].getClaimAmount();
+            } else if ("REJECTED".equalsIgnoreCase(claims[i].getStatus())) rejectedClaims++;
+        }
+
+        ReportTask reportTask = new ReportTask(customerCount, planCount, policyCount,
+                activePolicies, cancelledPolicies, successfulPayments, totalRevenue,
+                claimCount, pendingClaims, approvedClaims, rejectedClaims, totalApprovedClaimAmount);
+
+        // Start background thread using start()
+        reportTask.start();
+
+        try {
+            // Demonstrate join() ensuring the report is delivered before menu prompt returns
+            reportTask.join();
+        } catch (InterruptedException e) {
+            System.out.println("[Main Thread] Interrupted while waiting for ReportTask: " + e.getMessage());
+        }
+    }
+
+    // =========================================================================
+    // 8. DATA LOADERS & ARRAY ACCESSORS FOR FILEHANDLER
+    // =========================================================================
+
+    public Customer[] getCustomers() { return customers; }
     public int getCustomerCount() { return customerCount; }
+
+    public InsurancePlan[] getPlans() { return plans; }
     public int getPlanCount() { return planCount; }
+
+    public PurchasedPolicy[] getPolicies() { return policies; }
     public int getPolicyCount() { return policyCount; }
+
+    public Payment[] getPayments() { return payments; }
     public int getPaymentCount() { return paymentCount; }
+
+    public Claim[] getClaims() { return claims; }
     public int getClaimCount() { return claimCount; }
+
+    public boolean addLoadedCustomer(Customer c) {
+        if (customerCount < MAX_CUSTOMERS && c != null) {
+            customers[customerCount++] = c;
+            return true;
+        }
+        return false;
+    }
+
+    public boolean addLoadedPlan(InsurancePlan p) {
+        if (planCount < MAX_PLANS && p != null) {
+            plans[planCount++] = p;
+            return true;
+        }
+        return false;
+    }
+
+    public boolean addLoadedPolicy(PurchasedPolicy p) {
+        if (policyCount < MAX_POLICIES && p != null) {
+            policies[policyCount++] = p;
+            return true;
+        }
+        return false;
+    }
+
+    public boolean addLoadedPayment(Payment p) {
+        if (paymentCount < MAX_PAYMENTS && p != null) {
+            payments[paymentCount++] = p;
+            return true;
+        }
+        return false;
+    }
+
+    public boolean addLoadedClaim(Claim c) {
+        if (claimCount < MAX_CLAIMS && c != null) {
+            claims[claimCount++] = c;
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Calibrates auto-increment ID counters based on existing loaded data
+     * so that subsequent records never generate duplicate IDs.
+     */
+    public void syncCounters() {
+        for (int i = 0; i < customerCount; i++) {
+            if (customers[i] != null && customers[i].getCustomerId().startsWith("C")) {
+                try {
+                    int num = Integer.parseInt(customers[i].getCustomerId().substring(1));
+                    if (num >= nextCustomerId) nextCustomerId = num + 1;
+                } catch (Exception ignored) {}
+            }
+        }
+
+        for (int i = 0; i < policyCount; i++) {
+            if (policies[i] != null && policies[i].getPolicyNumber().startsWith("POL")) {
+                try {
+                    int num = Integer.parseInt(policies[i].getPolicyNumber().substring(3));
+                    if (num >= nextPolicyNumber) nextPolicyNumber = num + 1;
+                } catch (Exception ignored) {}
+            }
+        }
+
+        for (int i = 0; i < paymentCount; i++) {
+            if (payments[i] != null && payments[i].getPaymentId().startsWith("PAY")) {
+                try {
+                    int num = Integer.parseInt(payments[i].getPaymentId().substring(3));
+                    if (num >= nextPaymentId) nextPaymentId = num + 1;
+                } catch (Exception ignored) {}
+            }
+        }
+
+        for (int i = 0; i < claimCount; i++) {
+            if (claims[i] != null && claims[i].getClaimId().startsWith("CLM")) {
+                try {
+                    int num = Integer.parseInt(claims[i].getClaimId().substring(3));
+                    if (num >= nextClaimId) nextClaimId = num + 1;
+                } catch (Exception ignored) {}
+            }
+        }
+    }
 }

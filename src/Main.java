@@ -119,11 +119,21 @@ public class Main {
             System.out.println("Select Plan Type: 1. Health  2. Life  3. Vehicle  4. Travel");
             int typeChoice = readInt(sc, "Select type (1-4): ");
             switch (typeChoice) {
-                case 1: manager.displayPlansByType("Health"); break;
-                case 2: manager.displayPlansByType("Life"); break;
-                case 3: manager.displayPlansByType("Vehicle"); break;
-                case 4: manager.displayPlansByType("Travel"); break;
-                default: System.out.println("Invalid type choice."); break;
+                case 1:
+                    manager.displayPlansByType("Health");
+                    break;
+                case 2:
+                    manager.displayPlansByType("Life");
+                    break;
+                case 3:
+                    manager.displayPlansByType("Vehicle");
+                    break;
+                case 4:
+                    manager.displayPlansByType("Travel");
+                    break;
+                default:
+                    System.out.println("Invalid type choice.");
+                    break;
             }
         } else {
             System.out.println("Invalid option.");
@@ -311,10 +321,14 @@ public class Main {
             double basePrem = readDouble(sc, "Enter Base Premium (Rs): ");
 
             InsurancePlan newPlan = null;
-            if (type == 1) newPlan = new HealthPlan(planId, name, coverage, duration, basePrem);
-            else if (type == 2) newPlan = new LifePlan(planId, name, coverage, duration, basePrem);
-            else if (type == 3) newPlan = new VehiclePlan(planId, name, coverage, duration, basePrem);
-            else if (type == 4) newPlan = new TravelPlan(planId, name, coverage, duration, basePrem);
+            if (type == 1)
+                newPlan = new HealthPlan(planId, name, coverage, duration, basePrem);
+            else if (type == 2)
+                newPlan = new LifePlan(planId, name, coverage, duration, basePrem);
+            else if (type == 3)
+                newPlan = new VehiclePlan(planId, name, coverage, duration, basePrem);
+            else if (type == 4)
+                newPlan = new TravelPlan(planId, name, coverage, duration, basePrem);
             else {
                 System.out.println("Invalid plan type. Add cancelled.");
                 return;
