@@ -1,23 +1,23 @@
+import java.time.LocalDate;
+
 /**
  * InsuranceManager.java
  *
- * Implements Member 2 application logic & Member 3 integration:
- * - Application data storage using fixed-size Java object arrays
- * - Customer, Plan, Policy, Payment, and Claim operations
- * - ActionStack integration for tracking and undoing administrative operations
- * - FileHandler persistence integration (auto-saving on state changes)
- * - Safe array accessors and loaders for restarting/reloading application state
+ * Core Business Logic Controller:
+ * - Manages Customers, Plans, Policies, Payments, and Claims
+ * - Enforces business rules per PRD & Architecture specifications
+ * - Integrates ActionStack for auditing and undo operations
+ * - Integrates FileHandler for persistent storage
+ * - Supports multithreaded ExpiryMonitor and asynchronous ReportTask
  */
 public class InsuranceManager {
 
-    // Maximum capacities for fixed-size arrays
     private static final int MAX_CUSTOMERS = 100;
     private static final int MAX_PLANS = 50;
     private static final int MAX_POLICIES = 150;
     private static final int MAX_PAYMENTS = 150;
     private static final int MAX_CLAIMS = 100;
 
-    // Fixed-size object arrays
     private Customer[] customers;
     private int customerCount;
 
@@ -33,7 +33,6 @@ public class InsuranceManager {
     private Claim[] claims;
     private int claimCount;
 
-    // Member 3 ActionStack to log recent operations (LIFO)
     private ActionStack actionStack;
 
     // Auto-increment counters for unique IDs
@@ -42,7 +41,6 @@ public class InsuranceManager {
     private int nextPaymentId = 501;
     private int nextClaimId = 701;
 
-    // Constructor
     public InsuranceManager() {
         customers = new Customer[MAX_CUSTOMERS];
         customerCount = 0;
@@ -59,27 +57,21 @@ public class InsuranceManager {
         claims = new Claim[MAX_CLAIMS];
         claimCount = 0;
 
-        actionStack = new ActionStack(25);
-
-        // Always seed initial default plans upon creation
-        seedDefaultPlansIfEmpty();
+        actionStack = new ActionStack(30);
     }
 
-    /**
-     * Seeds initial sample insurance plans if no plans exist (e.g., first run without saved files).
-     */
     public void seedDefaultPlansIfEmpty() {
         if (findPlanByIdInternal("HP01") == null) {
-            addPlanInternal(new HealthPlan("HP01", "Health Care Comprehensive", 500000.0, 12, 8000.0));
+            addPlanInternal(new HealthPlan("HP01", "Health Care Comprehensive", 500000.0, 12, 8000.0, true));
         }
         if (findPlanByIdInternal("LP01") == null) {
-            addPlanInternal(new LifePlan("LP01", "Term Life Shield", 1000000.0, 24, 12000.0));
+            addPlanInternal(new LifePlan("LP01", "Term Life Shield", 1000000.0, 24, 12000.0, true));
         }
         if (findPlanByIdInternal("VP01") == null) {
-            addPlanInternal(new VehiclePlan("VP01", "Motor Comprehensive Cover", 300000.0, 12, 5000.0));
+            addPlanInternal(new VehiclePlan("VP01", "Motor Comprehensive Cover", 300000.0, 12, 5000.0, true));
         }
         if (findPlanByIdInternal("TP01") == null) {
-            addPlanInternal(new TravelPlan("TP01", "Global Travel Guard", 200000.0, 6, 3000.0));
+            addPlanInternal(new TravelPlan("TP01", "Global Travel Guard", 200000.0, 6, 3000.0, true));
         }
     }
 
@@ -103,43 +95,37 @@ public class InsuranceManager {
     // 1. CUSTOMER OPERATIONS
     // =========================================================================
 
-    /**
-     * Registers a new customer after validating inputs.
-     * Generates a unique customer ID (e.g. C101, C102).
-     */
     public Customer registerCustomer(String name, int age, String phone, String address) {
+        return registerCustomer(name, age, phone, "customer@insurance.com", address);
+    }
+
+    public Customer registerCustomer(String name, int age, String phone, String email, String address) {
         if (customerCount >= MAX_CUSTOMERS) {
-            System.out.println("Error: Customer storage limit reached (" + MAX_CUSTOMERS + ").");
+            System.out.println("Error: Customer storage capacity reached (" + MAX_CUSTOMERS + ").");
             return null;
         }
 
-        // Validation
         if (name == null || name.trim().isEmpty()) {
-            System.out.println("Validation Error: Customer name cannot be empty.");
+            System.out.println("Validation Error: Name cannot be blank.");
             return null;
         }
-        if (age <= 0 || age > 120) {
-            System.out.println("Validation Error: Please enter a valid age between 1 and 120.");
+        if (age < 18 || age > 120) {
+            System.out.println("Validation Error: Age must be between 18 and 120.");
             return null;
         }
         if (phone == null || phone.trim().length() < 10) {
             System.out.println("Validation Error: Phone number must be at least 10 digits.");
             return null;
         }
-
-        // Generate unique customer ID
-        String customerId = "C" + nextCustomerId++;
-
-        // Duplicate check (precautionary)
-        if (findCustomerById(customerId) != null) {
-            System.out.println("Error: Customer ID " + customerId + " already exists.");
+        if (email == null || !email.contains("@") || !email.contains(".")) {
+            System.out.println("Validation Error: Please provide a valid email address.");
             return null;
         }
 
-        Customer newCustomer = new Customer(customerId, name.trim(), age, phone.trim(), address.trim());
+        String customerId = "C" + nextCustomerId++;
+        Customer newCustomer = new Customer(customerId, name.trim(), age, phone.trim(), email.trim(), address.trim(), LocalDate.now());
         customers[customerCount++] = newCustomer;
 
-        // Log action and auto-save
         actionStack.push("Registered Customer: " + newCustomer.getName() + " (" + customerId + ")");
         FileHandler.saveCustomers(this);
 
@@ -148,9 +134,6 @@ public class InsuranceManager {
         return newCustomer;
     }
 
-    /**
-     * Searches for a customer by Customer ID.
-     */
     public Customer findCustomerById(String customerId) {
         if (customerId == null) return null;
         for (int i = 0; i < customerCount; i++) {
@@ -162,27 +145,69 @@ public class InsuranceManager {
     }
 
     /**
-     * Displays all registered customers.
+     * Overloaded search: search customer by name or phone number.
+     * Demonstrates Method Overloading (Arch §4.3 & PRD §10.3).
      */
+    public void searchCustomer(String keyword) {
+        if (keyword == null || keyword.trim().isEmpty()) {
+            System.out.println("Search keyword cannot be empty.");
+            return;
+        }
+        keyword = keyword.trim().toLowerCase();
+        boolean found = false;
+        System.out.println("\n--- CUSTOMER SEARCH RESULTS FOR: \"" + keyword + "\" ---");
+        System.out.printf("%-10s %-22s %-6s %-15s %-25s %-20s\n", "Cust ID", "Name", "Age", "Phone", "Email", "Address");
+        System.out.println("-------------------------------------------------------------------------------------------------------------");
+        for (int i = 0; i < customerCount; i++) {
+            Customer c = customers[i];
+            if (c != null && (c.getName().toLowerCase().contains(keyword) || c.getPhone().contains(keyword) || c.getCustomerId().toLowerCase().contains(keyword))) {
+                System.out.printf("%-10s %-22s %-6d %-15s %-25s %-20s\n",
+                        c.getCustomerId(), c.getName(), c.getAge(), c.getPhone(), c.getEmail(), c.getAddress());
+                found = true;
+            }
+        }
+        System.out.println("-------------------------------------------------------------------------------------------------------------");
+        if (!found) {
+            System.out.println("No matching customer records found.");
+        }
+    }
+
+    public boolean updateCustomer(String customerId, String name, int age, String phone, String email, String address) {
+        Customer c = findCustomerById(customerId);
+        if (c == null) {
+            System.out.println("Error: Customer with ID '" + customerId + "' not found.");
+            return false;
+        }
+
+        if (name != null && !name.trim().isEmpty()) c.setName(name.trim());
+        if (age >= 18 && age <= 120) c.setAge(age);
+        if (phone != null && phone.trim().length() >= 10) c.setPhone(phone.trim());
+        if (email != null && email.contains("@")) c.setEmail(email.trim());
+        if (address != null && !address.trim().isEmpty()) c.setAddress(address.trim());
+
+        actionStack.push("Updated Customer Details: " + customerId);
+        FileHandler.saveCustomers(this);
+
+        System.out.println("Customer profile for '" + customerId + "' updated successfully.");
+        return true;
+    }
+
     public void displayAllCustomers() {
         if (customerCount == 0) {
             System.out.println("No customers registered yet.");
             return;
         }
-        System.out.println("\n-------------------------------------------------------------------------------------------------");
-        System.out.printf("%-10s %-25s %-6s %-15s %-30s\n", "Cust ID", "Name", "Age", "Phone", "Address");
-        System.out.println("-------------------------------------------------------------------------------------------------");
+        System.out.println("\n----------------------------------------------------------------------------------------------------------------------");
+        System.out.printf("%-10s %-22s %-6s %-15s %-25s %-18s %-12s\n", "Cust ID", "Name", "Age", "Phone", "Email", "Address", "Reg Date");
+        System.out.println("----------------------------------------------------------------------------------------------------------------------");
         for (int i = 0; i < customerCount; i++) {
             Customer c = customers[i];
-            System.out.printf("%-10s %-25s %-6d %-15s %-30s\n",
-                    c.getCustomerId(), c.getName(), c.getAge(), c.getPhone(), c.getAddress());
+            System.out.printf("%-10s %-22s %-6d %-15s %-25s %-18s %-12s\n",
+                    c.getCustomerId(), c.getName(), c.getAge(), c.getPhone(), c.getEmail(), c.getAddress(), c.getRegistrationDate());
         }
-        System.out.println("-------------------------------------------------------------------------------------------------");
+        System.out.println("----------------------------------------------------------------------------------------------------------------------");
     }
 
-    /**
-     * Displays details of a specific customer.
-     */
     public void displayCustomerProfile(String customerId) {
         Customer c = findCustomerById(customerId);
         if (c == null) {
@@ -190,23 +215,22 @@ public class InsuranceManager {
             return;
         }
         System.out.println("\n--- CUSTOMER PROFILE ---");
-        System.out.println("Customer ID : " + c.getCustomerId());
-        System.out.println("Name        : " + c.getName());
-        System.out.println("Age         : " + c.getAge());
-        System.out.println("Phone       : " + c.getPhone());
-        System.out.println("Address     : " + c.getAddress());
+        System.out.println("Customer ID       : " + c.getCustomerId());
+        System.out.println("Name              : " + c.getName());
+        System.out.println("Age               : " + c.getAge());
+        System.out.println("Phone             : " + c.getPhone());
+        System.out.println("Email             : " + c.getEmail());
+        System.out.println("Address           : " + c.getAddress());
+        System.out.println("Registration Date : " + c.getRegistrationDate());
     }
 
     // =========================================================================
     // 2. INSURANCE PLAN OPERATIONS
     // =========================================================================
 
-    /**
-     * Adds an insurance plan to available plans.
-     */
     public boolean addPlan(InsurancePlan plan) {
         if (planCount >= MAX_PLANS) {
-            System.out.println("Error: Plan storage limit reached (" + MAX_PLANS + ").");
+            System.out.println("Error: Plan storage capacity reached (" + MAX_PLANS + ").");
             return false;
         }
         if (plan == null) {
@@ -219,21 +243,14 @@ public class InsuranceManager {
         }
         plans[planCount++] = plan;
 
-        // Log action and auto-save
         actionStack.push("Added Plan: " + plan.getPlanId() + " (" + plan.getPlanName() + ")");
         FileHandler.savePlans(this);
 
         return true;
     }
 
-    /**
-     * Searches for a plan by Plan ID.
-     */
     public InsurancePlan findPlanById(String planId) {
         if (planId == null) return null;
-        if (planCount == 0) {
-            seedDefaultPlansIfEmpty();
-        }
         for (int i = 0; i < planCount; i++) {
             if (plans[i] != null && planId.equalsIgnoreCase(plans[i].getPlanId())) {
                 return plans[i];
@@ -243,31 +260,70 @@ public class InsuranceManager {
     }
 
     /**
-     * Displays all available insurance plans.
+     * Overloaded search: search plan by name and type.
+     * Demonstrates Method Overloading (Arch §4.3 & PRD §10.3).
      */
-    public void displayAllPlans() {
-        if (planCount == 0) {
-            seedDefaultPlansIfEmpty();
+    public void searchPlans(String nameKeyword, String planType) {
+        boolean found = false;
+        System.out.println("\n--- PLAN SEARCH RESULTS ---");
+        System.out.println("-----------------------------------------------------------------------------------------------------------");
+        System.out.printf("%-10s %-12s %-30s %-15s %-10s %-12s %-12s\n", "Plan ID", "Type", "Plan Name", "Coverage (Rs)", "Duration", "Base Premium", "Availability");
+        System.out.println("-----------------------------------------------------------------------------------------------------------");
+        for (int i = 0; i < planCount; i++) {
+            InsurancePlan p = plans[i];
+            String type = getPlanType(p);
+            boolean matchType = (planType == null || planType.trim().isEmpty() || "ALL".equalsIgnoreCase(planType) || type.equalsIgnoreCase(planType));
+            boolean matchName = (nameKeyword == null || nameKeyword.trim().isEmpty() || p.getPlanName().toLowerCase().contains(nameKeyword.toLowerCase()));
+
+            if (matchType && matchName) {
+                System.out.printf("%-10s %-12s %-30s %-15.2f %-2d months   Rs %-10.2f %-12s\n",
+                        p.getPlanId(), type, p.getPlanName(), p.getCoverageAmount(), p.getDurationMonths(), p.getBasePremium(), (p.isAvailable() ? "AVAILABLE" : "DEACTIVATED"));
+                found = true;
+            }
         }
+        System.out.println("-----------------------------------------------------------------------------------------------------------");
+        if (!found) {
+            System.out.println("No matching plans found.");
+        }
+    }
+
+    public void displayAllPlans() {
         if (planCount == 0) {
             System.out.println("No insurance plans available.");
             return;
         }
+        System.out.println("\n-----------------------------------------------------------------------------------------------------------");
+        System.out.printf("%-10s %-12s %-30s %-15s %-10s %-12s %-12s\n", "Plan ID", "Type", "Plan Name", "Coverage (Rs)", "Duration", "Base Premium", "Availability");
+        System.out.println("-----------------------------------------------------------------------------------------------------------");
+        for (int i = 0; i < planCount; i++) {
+            InsurancePlan p = plans[i];
+            String type = getPlanType(p);
+            System.out.printf("%-10s %-12s %-30s %-15.2f %-2d months   Rs %-10.2f %-12s\n",
+                    p.getPlanId(), type, p.getPlanName(), p.getCoverageAmount(), p.getDurationMonths(), p.getBasePremium(), (p.isAvailable() ? "AVAILABLE" : "DEACTIVATED"));
+        }
+        System.out.println("-----------------------------------------------------------------------------------------------------------");
+    }
+
+    public void displayAvailablePlansOnly() {
+        boolean found = false;
         System.out.println("\n-----------------------------------------------------------------------------------------------");
         System.out.printf("%-10s %-12s %-30s %-15s %-10s %-12s\n", "Plan ID", "Type", "Plan Name", "Coverage (Rs)", "Duration", "Base Premium");
         System.out.println("-----------------------------------------------------------------------------------------------");
         for (int i = 0; i < planCount; i++) {
             InsurancePlan p = plans[i];
-            String type = getPlanType(p);
-            System.out.printf("%-10s %-12s %-30s %-15.2f %-2d months   Rs %-10.2f\n",
-                    p.getPlanId(), type, p.getPlanName(), p.getCoverageAmount(), p.getDurationMonths(), p.getBasePremium());
+            if (p != null && p.isAvailable()) {
+                String type = getPlanType(p);
+                System.out.printf("%-10s %-12s %-30s %-15.2f %-2d months   Rs %-10.2f\n",
+                        p.getPlanId(), type, p.getPlanName(), p.getCoverageAmount(), p.getDurationMonths(), p.getBasePremium());
+                found = true;
+            }
         }
         System.out.println("-----------------------------------------------------------------------------------------------");
+        if (!found) {
+            System.out.println("No active insurance plans available for purchase at this time.");
+        }
     }
 
-    /**
-     * Helper to get human-readable plan type name.
-     */
     public String getPlanType(InsurancePlan p) {
         if (p instanceof HealthPlan) return "Health";
         if (p instanceof LifePlan) return "Life";
@@ -276,54 +332,37 @@ public class InsuranceManager {
         return "General";
     }
 
-    /**
-     * Displays plans filtered by type: Health, Life, Vehicle, Travel.
-     */
     public void displayPlansByType(String type) {
         if (type == null) return;
-        if (planCount == 0) {
-            seedDefaultPlansIfEmpty();
-        }
         boolean found = false;
         System.out.println("\n--- " + type.toUpperCase() + " INSURANCE PLANS ---");
-        System.out.println("-----------------------------------------------------------------------------------------------");
-        System.out.printf("%-10s %-30s %-15s %-10s %-12s\n", "Plan ID", "Plan Name", "Coverage (Rs)", "Duration", "Base Premium");
-        System.out.println("-----------------------------------------------------------------------------------------------");
+        System.out.println("-----------------------------------------------------------------------------------------------------------");
+        System.out.printf("%-10s %-30s %-15s %-10s %-12s %-12s\n", "Plan ID", "Plan Name", "Coverage (Rs)", "Duration", "Base Premium", "Availability");
+        System.out.println("-----------------------------------------------------------------------------------------------------------");
         for (int i = 0; i < planCount; i++) {
             InsurancePlan p = plans[i];
             if (getPlanType(p).equalsIgnoreCase(type)) {
-                System.out.printf("%-10s %-30s %-15.2f %-2d months   Rs %-10.2f\n",
-                        p.getPlanId(), p.getPlanName(), p.getCoverageAmount(), p.getDurationMonths(), p.getBasePremium());
+                System.out.printf("%-10s %-30s %-15.2f %-2d months   Rs %-10.2f %-12s\n",
+                        p.getPlanId(), p.getPlanName(), p.getCoverageAmount(), p.getDurationMonths(), p.getBasePremium(), (p.isAvailable() ? "AVAILABLE" : "DEACTIVATED"));
                 found = true;
             }
         }
-        System.out.println("-----------------------------------------------------------------------------------------------");
+        System.out.println("-----------------------------------------------------------------------------------------------------------");
         if (!found) {
             System.out.println("No plans found under type: " + type);
         }
     }
 
-    /**
-     * Updates an existing plan's details.
-     */
     public boolean updatePlan(String planId, String newName, double newCoverage, int newDuration, double newBasePremium) {
         InsurancePlan p = findPlanById(planId);
         if (p == null) {
             System.out.println("Error: Plan with ID '" + planId + "' not found.");
             return false;
         }
-        if (newName != null && !newName.trim().isEmpty()) {
-            p.setPlanName(newName.trim());
-        }
-        if (newCoverage > 0) {
-            p.setCoverageAmount(newCoverage);
-        }
-        if (newDuration > 0) {
-            p.setDurationMonths(newDuration);
-        }
-        if (newBasePremium > 0) {
-            p.setBasePremium(newBasePremium);
-        }
+        if (newName != null && !newName.trim().isEmpty()) p.setPlanName(newName.trim());
+        if (newCoverage > 0) p.setCoverageAmount(newCoverage);
+        if (newDuration > 0) p.setDurationMonths(newDuration);
+        if (newBasePremium > 0) p.setBasePremium(newBasePremium);
 
         actionStack.push("Updated Plan: " + planId);
         FileHandler.savePlans(this);
@@ -333,8 +372,43 @@ public class InsuranceManager {
     }
 
     /**
-     * Removes a plan from available plans by shifting the array elements.
+     * Deactivates a plan instead of deleting it, maintaining referential integrity for purchased policies.
+     * Complies with PRD §6.3, §6.4 and Architecture §5.
      */
+    public boolean deactivatePlan(String planId) {
+        InsurancePlan p = findPlanById(planId);
+        if (p == null) {
+            System.out.println("Error: Plan with ID '" + planId + "' not found.");
+            return false;
+        }
+        if (!p.isAvailable()) {
+            System.out.println("Notice: Plan '" + planId + "' is already deactivated.");
+            return false;
+        }
+        p.setAvailable(false);
+
+        actionStack.push("Deactivated Plan: " + planId);
+        FileHandler.savePlans(this);
+
+        System.out.println("Plan '" + planId + "' has been deactivated. Existing policies remain intact, but no new purchases are allowed.");
+        return true;
+    }
+
+    public boolean reactivatePlan(String planId) {
+        InsurancePlan p = findPlanById(planId);
+        if (p == null) {
+            System.out.println("Error: Plan with ID '" + planId + "' not found.");
+            return false;
+        }
+        p.setAvailable(true);
+
+        actionStack.push("Reactivated Plan: " + planId);
+        FileHandler.savePlans(this);
+
+        System.out.println("Plan '" + planId + "' is now AVAILABLE for new purchases.");
+        return true;
+    }
+
     public boolean removePlan(String planId) {
         int index = -1;
         for (int i = 0; i < planCount; i++) {
@@ -348,7 +422,7 @@ public class InsuranceManager {
             return false;
         }
 
-        // Shift elements to the left
+        // Shift elements
         for (int i = index; i < planCount - 1; i++) {
             plans[i] = plans[i + 1];
         }
@@ -358,7 +432,7 @@ public class InsuranceManager {
         actionStack.push("Removed Plan: " + planId);
         FileHandler.savePlans(this);
 
-        System.out.println("Plan '" + planId + "' has been successfully removed.");
+        System.out.println("Plan '" + planId + "' has been physically removed.");
         return true;
     }
 
@@ -366,11 +440,6 @@ public class InsuranceManager {
     // 3. PURCHASED POLICY OPERATIONS
     // =========================================================================
 
-    /**
-     * Purchases a policy for a customer.
-     * Verifies existence of customer and plan, uses Member 1's calculatePremium,
-     * generates a unique policy number, and saves the purchased policy with status 'ACTIVE'.
-     */
     public PurchasedPolicy purchasePolicy(String customerId, String planId) {
         if (policyCount >= MAX_POLICIES) {
             System.out.println("Error: Policy storage capacity reached (" + MAX_POLICIES + ").");
@@ -385,36 +454,46 @@ public class InsuranceManager {
 
         InsurancePlan plan = findPlanById(planId);
         if (plan == null) {
-            System.out.println("Error: Insurance plan with ID '" + planId + "' does not exist or has been removed.");
+            System.out.println("Error: Insurance plan with ID '" + planId + "' does not exist.");
             return null;
         }
 
-        // Calculate premium using Member 1's calculatePremium(Customer) method
+        if (!plan.isAvailable()) {
+            System.out.println("Error: Plan '" + plan.getPlanName() + " (" + planId + ")' has been deactivated and is not available for new purchases.");
+            return null;
+        }
+
         double calculatedPremium = plan.calculatePremium(customer);
+        LocalDate purchaseDate = LocalDate.now();
+        LocalDate startDate = purchaseDate;
+        LocalDate expiryDate = startDate.plusMonths(plan.getDurationMonths());
 
         String policyNumber = "POL" + nextPolicyNumber++;
-        PurchasedPolicy newPolicy = new PurchasedPolicy(policyNumber, customer.getCustomerId(), plan.getPlanId(), "ACTIVE");
+        PurchasedPolicy newPolicy = new PurchasedPolicy(policyNumber, customer.getCustomerId(), plan.getPlanId(),
+                "PENDING_PAYMENT", "PENDING", calculatedPremium, plan.getCoverageAmount(),
+                purchaseDate, startDate, expiryDate);
+
         policies[policyCount++] = newPolicy;
 
         actionStack.push("Purchased Policy: " + policyNumber + " for " + customer.getName() + " (" + planId + ")");
         FileHandler.savePolicies(this);
 
-        System.out.println("\nPolicy Purchased Successfully!");
-        System.out.println("----------------------------------------------");
+        System.out.println("\nPolicy Enrolled Successfully!");
+        System.out.println("-------------------------------------------------------------");
         System.out.println("Policy Number       : " + policyNumber);
         System.out.println("Customer Name       : " + customer.getName() + " (" + customer.getCustomerId() + ")");
         System.out.println("Plan Name           : " + plan.getPlanName() + " (" + plan.getPlanId() + ")");
         System.out.println("Coverage Amount     : Rs " + plan.getCoverageAmount());
-        System.out.println("Duration            : " + plan.getDurationMonths() + " months");
         System.out.println("Calculated Premium  : Rs " + calculatedPremium);
-        System.out.println("Status              : ACTIVE");
-        System.out.println("----------------------------------------------");
+        System.out.println("Duration            : " + plan.getDurationMonths() + " months");
+        System.out.println("Start Date          : " + startDate);
+        System.out.println("Expiry Date         : " + expiryDate);
+        System.out.println("Policy Status       : PENDING_PAYMENT");
+        System.out.println("Payment Status      : PENDING (Simulate payment to activate)");
+        System.out.println("-------------------------------------------------------------");
         return newPolicy;
     }
 
-    /**
-     * Searches for a purchased policy by policy number.
-     */
     public PurchasedPolicy findPolicyByNumber(String policyNumber) {
         if (policyNumber == null) return null;
         for (int i = 0; i < policyCount; i++) {
@@ -426,28 +505,73 @@ public class InsuranceManager {
     }
 
     /**
-     * Displays all purchased policies.
+     * Checks all policies against referenceDate and refreshes status to EXPIRED.
+     * Complies with PRD §6.10, §15 and Architecture §8.
      */
+    public synchronized int checkAndRefreshPolicyStatuses(LocalDate referenceDate) {
+        if (referenceDate == null) referenceDate = LocalDate.now();
+        int newlyExpired = 0;
+        for (int i = 0; i < policyCount; i++) {
+            PurchasedPolicy p = policies[i];
+            if (p != null && !"CANCELLED".equalsIgnoreCase(p.getStatus())) {
+                if (p.getExpiryDate() != null && referenceDate.isAfter(p.getExpiryDate())) {
+                    if (!"EXPIRED".equalsIgnoreCase(p.getStatus())) {
+                        p.setStatus("EXPIRED");
+                        newlyExpired++;
+                    }
+                }
+            }
+        }
+        if (newlyExpired > 0) {
+            FileHandler.savePolicies(this);
+        }
+        return newlyExpired;
+    }
+
     public void displayAllPurchasedPolicies() {
+        checkAndRefreshPolicyStatuses(LocalDate.now());
         if (policyCount == 0) {
             System.out.println("No policies purchased yet.");
             return;
         }
-        System.out.println("\n-----------------------------------------------------------------");
-        System.out.printf("%-15s %-12s %-12s %-12s\n", "Policy No", "Customer ID", "Plan ID", "Status");
-        System.out.println("-----------------------------------------------------------------");
+        System.out.println("\n---------------------------------------------------------------------------------------------------------------------------");
+        System.out.printf("%-12s %-10s %-10s %-16s %-10s %-12s %-12s %-12s %-12s\n",
+                "Policy No", "Cust ID", "Plan ID", "Status", "Payment", "Premium (Rs)", "Coverage", "Start Date", "Expiry Date");
+        System.out.println("---------------------------------------------------------------------------------------------------------------------------");
         for (int i = 0; i < policyCount; i++) {
             PurchasedPolicy p = policies[i];
-            System.out.printf("%-15s %-12s %-12s %-12s\n",
-                    p.getPolicyNumber(), p.getCustomerId(), p.getPlanId(), p.getStatus());
+            System.out.printf("%-12s %-10s %-10s %-16s %-10s %-12.2f %-12.2f %-12s %-12s\n",
+                    p.getPolicyNumber(), p.getCustomerId(), p.getPlanId(), p.getStatus(), p.getPaymentStatus(),
+                    p.getPremium(), p.getCoverageAmount(), p.getStartDate(), p.getExpiryDate());
         }
-        System.out.println("-----------------------------------------------------------------");
+        System.out.println("---------------------------------------------------------------------------------------------------------------------------");
     }
 
-    /**
-     * Displays all policies purchased by a specific customer.
-     */
+    public void displayPoliciesByStatus(String statusFilter) {
+        checkAndRefreshPolicyStatuses(LocalDate.now());
+        boolean found = false;
+        System.out.println("\n--- POLICIES WITH STATUS: " + statusFilter.toUpperCase() + " ---");
+        System.out.println("---------------------------------------------------------------------------------------------------------------------------");
+        System.out.printf("%-12s %-10s %-10s %-16s %-10s %-12s %-12s %-12s %-12s\n",
+                "Policy No", "Cust ID", "Plan ID", "Status", "Payment", "Premium (Rs)", "Coverage", "Start Date", "Expiry Date");
+        System.out.println("---------------------------------------------------------------------------------------------------------------------------");
+        for (int i = 0; i < policyCount; i++) {
+            PurchasedPolicy p = policies[i];
+            if (p != null && (statusFilter == null || statusFilter.equalsIgnoreCase(p.getStatus()))) {
+                System.out.printf("%-12s %-10s %-10s %-16s %-10s %-12.2f %-12.2f %-12s %-12s\n",
+                        p.getPolicyNumber(), p.getCustomerId(), p.getPlanId(), p.getStatus(), p.getPaymentStatus(),
+                        p.getPremium(), p.getCoverageAmount(), p.getStartDate(), p.getExpiryDate());
+                found = true;
+            }
+        }
+        System.out.println("---------------------------------------------------------------------------------------------------------------------------");
+        if (!found) {
+            System.out.println("No policies found with status: " + statusFilter);
+        }
+    }
+
     public void displayPoliciesByCustomer(String customerId) {
+        checkAndRefreshPolicyStatuses(LocalDate.now());
         Customer c = findCustomerById(customerId);
         if (c == null) {
             System.out.println("Customer ID '" + customerId + "' not found.");
@@ -455,26 +579,48 @@ public class InsuranceManager {
         }
         boolean found = false;
         System.out.println("\n--- POLICIES FOR CUSTOMER: " + c.getName() + " (" + customerId + ") ---");
-        System.out.println("-----------------------------------------------------------------");
-        System.out.printf("%-15s %-12s %-12s %-12s\n", "Policy No", "Customer ID", "Plan ID", "Status");
-        System.out.println("-----------------------------------------------------------------");
+        System.out.println("---------------------------------------------------------------------------------------------------------------------------");
+        System.out.printf("%-12s %-10s %-16s %-10s %-12s %-12s %-12s %-12s\n",
+                "Policy No", "Plan ID", "Status", "Payment", "Premium (Rs)", "Coverage", "Start Date", "Expiry Date");
+        System.out.println("---------------------------------------------------------------------------------------------------------------------------");
         for (int i = 0; i < policyCount; i++) {
             PurchasedPolicy p = policies[i];
             if (p != null && customerId.equalsIgnoreCase(p.getCustomerId())) {
-                System.out.printf("%-15s %-12s %-12s %-12s\n",
-                        p.getPolicyNumber(), p.getCustomerId(), p.getPlanId(), p.getStatus());
+                System.out.printf("%-12s %-10s %-16s %-10s %-12.2f %-12.2f %-12s %-12s\n",
+                        p.getPolicyNumber(), p.getPlanId(), p.getStatus(), p.getPaymentStatus(),
+                        p.getPremium(), p.getCoverageAmount(), p.getStartDate(), p.getExpiryDate());
                 found = true;
             }
         }
-        System.out.println("-----------------------------------------------------------------");
+        System.out.println("---------------------------------------------------------------------------------------------------------------------------");
         if (!found) {
             System.out.println("No policies found for this customer.");
         }
     }
 
-    /**
-     * Renews an active or expired policy.
-     */
+    public void displayPayablePolicies(String customerId) {
+        checkAndRefreshPolicyStatuses(LocalDate.now());
+        boolean found = false;
+        System.out.println("\n--- PENDING PAYABLE POLICIES ---");
+        System.out.println("------------------------------------------------------------------------------------");
+        System.out.printf("%-12s %-10s %-12s %-15s %-15s\n", "Policy No", "Plan ID", "Status", "Premium Due", "Expiry Date");
+        System.out.println("------------------------------------------------------------------------------------");
+        for (int i = 0; i < policyCount; i++) {
+            PurchasedPolicy p = policies[i];
+            if (p != null && (customerId == null || customerId.equalsIgnoreCase(p.getCustomerId()))) {
+                if ("PENDING".equalsIgnoreCase(p.getPaymentStatus()) && !"CANCELLED".equalsIgnoreCase(p.getStatus())) {
+                    System.out.printf("%-12s %-10s %-12s Rs %-12.2f %-15s\n",
+                            p.getPolicyNumber(), p.getPlanId(), p.getStatus(), p.getPremium(), p.getExpiryDate());
+                    found = true;
+                }
+            }
+        }
+        System.out.println("------------------------------------------------------------------------------------");
+        if (!found) {
+            System.out.println("No pending premium dues found.");
+        }
+    }
+
     public boolean renewPolicy(String policyNumber) {
         PurchasedPolicy p = findPolicyByNumber(policyNumber);
         if (p == null) {
@@ -485,18 +631,30 @@ public class InsuranceManager {
             System.out.println("Error: Cancelled policy '" + policyNumber + "' cannot be renewed.");
             return false;
         }
-        p.setStatus("ACTIVE");
 
-        actionStack.push("Renewed Policy: " + policyNumber);
+        InsurancePlan plan = findPlanById(p.getPlanId());
+        if (plan != null && !plan.isAvailable()) {
+            System.out.println("Error: Cannot renew. The linked plan '" + plan.getPlanName() + "' is no longer available.");
+            return false;
+        }
+
+        int durationMonths = (plan != null) ? plan.getDurationMonths() : 12;
+        LocalDate currentExp = p.getExpiryDate();
+        LocalDate baseDate = (currentExp != null && currentExp.isAfter(LocalDate.now())) ? currentExp : LocalDate.now();
+        LocalDate newExpiry = baseDate.plusMonths(durationMonths);
+
+        p.setExpiryDate(newExpiry);
+        p.setStatus("PENDING_PAYMENT");
+        p.setPaymentStatus("PENDING");
+
+        actionStack.push("Renewed Policy: " + policyNumber + " (New Expiry: " + newExpiry + ")");
         FileHandler.savePolicies(this);
 
-        System.out.println("Policy '" + policyNumber + "' has been successfully renewed! Status is now ACTIVE.");
+        System.out.println("Policy '" + policyNumber + "' renewed! New Expiry Date: " + newExpiry);
+        System.out.println("Status is PENDING_PAYMENT. Please make the simulated premium payment of Rs " + p.getPremium() + " to activate.");
         return true;
     }
 
-    /**
-     * Cancels an active policy.
-     */
     public boolean cancelPolicy(String policyNumber) {
         PurchasedPolicy p = findPolicyByNumber(policyNumber);
         if (p == null) {
@@ -520,10 +678,6 @@ public class InsuranceManager {
     // 4. PAYMENT OPERATIONS
     // =========================================================================
 
-    /**
-     * Processes a simulated premium payment for a policy.
-     * Uses Member 1's Payment class and makePayment(amount) method.
-     */
     public Payment processPayment(String policyNumber, double amount) {
         if (paymentCount >= MAX_PAYMENTS) {
             System.out.println("Error: Payment record storage capacity reached.");
@@ -541,65 +695,76 @@ public class InsuranceManager {
             return null;
         }
 
-        String paymentId = "PAY" + nextPaymentId++;
-        Payment payment = new Payment(paymentId, policyNumber, 0.0, "PENDING");
+        if ("PAID".equalsIgnoreCase(policy.getPaymentStatus()) && "ACTIVE".equalsIgnoreCase(policy.getStatus())) {
+            System.out.println("Notice: Policy '" + policyNumber + "' has already been paid and is currently ACTIVE.");
+            return null;
+        }
 
-        // Invoke Member 1's makePayment implementation
+        if (amount < policy.getPremium()) {
+            System.out.println("Validation Error: Payment amount (Rs " + amount + ") is less than required premium (Rs " + policy.getPremium() + ").");
+            return null;
+        }
+
+        String paymentId = "PAY" + nextPaymentId++;
+        Payment payment = new Payment(paymentId, policyNumber, policy.getCustomerId(), amount, "PENDING", LocalDate.now());
+
         boolean success = payment.makePayment(amount);
         payments[paymentCount++] = payment;
 
         if (success) {
+            policy.setPaymentStatus("PAID");
+            policy.setStatus("ACTIVE"); // Policy becomes ACTIVE upon successful payment!
+
             actionStack.push("Processed Payment: " + paymentId + " of Rs " + amount + " for Policy " + policyNumber);
             FileHandler.savePayments(this);
-            System.out.println("Receipt: Payment ID " + paymentId + " of Rs " + amount + " recorded for Policy " + policyNumber);
+            FileHandler.savePolicies(this);
+
+            System.out.println("\nPayment Processed Successfully!");
+            System.out.println("----------------------------------------------");
+            System.out.println("Transaction ID      : " + paymentId);
+            System.out.println("Policy Number       : " + policyNumber);
+            System.out.println("Customer ID         : " + policy.getCustomerId());
+            System.out.println("Amount Paid         : Rs " + amount);
+            System.out.println("Payment Date        : " + payment.getPaymentDate());
+            System.out.println("Policy Status       : ACTIVE");
+            System.out.println("----------------------------------------------");
         } else {
             System.out.println("Payment transaction failed for Policy " + policyNumber);
         }
         return payment;
     }
 
-    /**
-     * Displays all payments recorded in the system.
-     */
     public void displayAllPayments() {
         if (paymentCount == 0) {
             System.out.println("No payment records found.");
             return;
         }
-        System.out.println("\n-----------------------------------------------------------------");
-        System.out.printf("%-12s %-15s %-15s %-12s\n", "Payment ID", "Policy No", "Amount (Rs)", "Status");
-        System.out.println("-----------------------------------------------------------------");
+        System.out.println("\n-------------------------------------------------------------------------------------------------");
+        System.out.printf("%-12s %-15s %-12s %-15s %-15s %-12s\n", "Payment ID", "Policy No", "Cust ID", "Amount (Rs)", "Status", "Date");
+        System.out.println("-------------------------------------------------------------------------------------------------");
         for (int i = 0; i < paymentCount; i++) {
             Payment p = payments[i];
-            System.out.printf("%-12s %-15s %-15.2f %-12s\n",
-                    p.getPaymentId(), p.getPolicyNumber(), p.getAmount(), p.getStatus());
+            System.out.printf("%-12s %-15s %-12s Rs %-12.2f %-15s %-12s\n",
+                    p.getPaymentId(), p.getPolicyNumber(), p.getCustomerId(), p.getAmount(), p.getStatus(), p.getPaymentDate());
         }
-        System.out.println("-----------------------------------------------------------------");
+        System.out.println("-------------------------------------------------------------------------------------------------");
     }
 
-    /**
-     * Displays payment history for a specific policy.
-     */
     public void displayPaymentsByPolicy(String policyNumber) {
-        PurchasedPolicy policy = findPolicyByNumber(policyNumber);
-        if (policy == null) {
-            System.out.println("Error: Policy number '" + policyNumber + "' not found.");
-            return;
-        }
         boolean found = false;
         System.out.println("\n--- PAYMENT HISTORY FOR POLICY: " + policyNumber + " ---");
-        System.out.println("-----------------------------------------------------------------");
-        System.out.printf("%-12s %-15s %-15s %-12s\n", "Payment ID", "Policy No", "Amount (Rs)", "Status");
-        System.out.println("-----------------------------------------------------------------");
+        System.out.println("-------------------------------------------------------------------------------------------------");
+        System.out.printf("%-12s %-15s %-12s %-15s %-15s %-12s\n", "Payment ID", "Policy No", "Cust ID", "Amount (Rs)", "Status", "Date");
+        System.out.println("-------------------------------------------------------------------------------------------------");
         for (int i = 0; i < paymentCount; i++) {
             Payment p = payments[i];
             if (p != null && policyNumber.equalsIgnoreCase(p.getPolicyNumber())) {
-                System.out.printf("%-12s %-15s %-15.2f %-12s\n",
-                        p.getPaymentId(), p.getPolicyNumber(), p.getAmount(), p.getStatus());
+                System.out.printf("%-12s %-15s %-12s Rs %-12.2f %-15s %-12s\n",
+                        p.getPaymentId(), p.getPolicyNumber(), p.getCustomerId(), p.getAmount(), p.getStatus(), p.getPaymentDate());
                 found = true;
             }
         }
-        System.out.println("-----------------------------------------------------------------");
+        System.out.println("-------------------------------------------------------------------------------------------------");
         if (!found) {
             System.out.println("No payments recorded for this policy.");
         }
@@ -609,10 +774,6 @@ public class InsuranceManager {
     // 5. CLAIM OPERATIONS
     // =========================================================================
 
-    /**
-     * Submits an insurance claim against a purchased policy.
-     * Verifies that the policy exists, belongs to the customer, and is ACTIVE.
-     */
     public Claim submitClaim(String customerId, String policyNumber, String description, double claimAmount) {
         if (claimCount >= MAX_CLAIMS) {
             System.out.println("Error: Claim storage capacity reached.");
@@ -636,8 +797,15 @@ public class InsuranceManager {
             return null;
         }
 
+        checkAndRefreshPolicyStatuses(LocalDate.now());
+
         if (!"ACTIVE".equalsIgnoreCase(policy.getStatus())) {
-            System.out.println("Validation Error: Cannot submit claim. Policy status is " + policy.getStatus() + " (Must be ACTIVE).");
+            System.out.println("Validation Error: Cannot submit claim. Policy status is '" + policy.getStatus() + "' (Must be ACTIVE).");
+            return null;
+        }
+
+        if (!"PAID".equalsIgnoreCase(policy.getPaymentStatus())) {
+            System.out.println("Validation Error: Premium payment for Policy '" + policyNumber + "' is pending. Claims require paid premium.");
             return null;
         }
 
@@ -646,28 +814,34 @@ public class InsuranceManager {
             return null;
         }
 
+        if (claimAmount > policy.getCoverageAmount()) {
+            System.out.println("Validation Error: Requested claim amount (Rs " + claimAmount + ") exceeds maximum policy coverage (Rs " + policy.getCoverageAmount() + ").");
+            return null;
+        }
+
         String claimId = "CLM" + nextClaimId++;
-        Claim newClaim = new Claim(claimId, policyNumber, description.trim(), claimAmount, "PENDING");
+        Claim newClaim = new Claim(claimId, policyNumber, customerId, description.trim(),
+                claimAmount, 0.0, "PENDING", LocalDate.now(), null, "Under administrative review");
+
         claims[claimCount++] = newClaim;
 
         actionStack.push("Submitted Claim: " + claimId + " for Policy " + policyNumber + " (Rs " + claimAmount + ")");
         FileHandler.saveClaims(this);
 
         System.out.println("\nClaim Submitted Successfully!");
-        System.out.println("----------------------------------------------------");
-        System.out.println("Claim ID     : " + claimId);
-        System.out.println("Policy Number: " + policyNumber);
-        System.out.println("Customer     : " + customer.getName() + " (" + customerId + ")");
-        System.out.println("Claim Amount : Rs " + claimAmount);
-        System.out.println("Description  : " + description);
-        System.out.println("Status       : PENDING (Under Admin Review)");
-        System.out.println("----------------------------------------------------");
+        System.out.println("-------------------------------------------------------------");
+        System.out.println("Claim ID          : " + claimId);
+        System.out.println("Policy Number     : " + policyNumber);
+        System.out.println("Customer          : " + customer.getName() + " (" + customerId + ")");
+        System.out.println("Requested Amount  : Rs " + claimAmount);
+        System.out.println("Policy Coverage   : Rs " + policy.getCoverageAmount());
+        System.out.println("Description       : " + description);
+        System.out.println("Submission Date   : " + newClaim.getSubmissionDate());
+        System.out.println("Status            : PENDING (Under Admin Review)");
+        System.out.println("-------------------------------------------------------------");
         return newClaim;
     }
 
-    /**
-     * Searches for a claim by Claim ID.
-     */
     public Claim findClaimById(String claimId) {
         if (claimId == null) return null;
         for (int i = 0; i < claimCount; i++) {
@@ -678,28 +852,107 @@ public class InsuranceManager {
         return null;
     }
 
-    /**
-     * Displays all claims submitted in the system.
-     */
+    public boolean approveClaim(String claimId, double approvedAmount, String remarks) {
+        Claim c = findClaimById(claimId);
+        if (c == null) {
+            System.out.println("Error: Claim ID '" + claimId + "' not found.");
+            return false;
+        }
+        if (!"PENDING".equalsIgnoreCase(c.getStatus())) {
+            System.out.println("Notice: Claim '" + claimId + "' has already been processed (Status: " + c.getStatus() + ").");
+            return false;
+        }
+
+        if (approvedAmount <= 0) {
+            System.out.println("Validation Error: Approved amount must be greater than 0.");
+            return false;
+        }
+        if (approvedAmount > c.getClaimAmount()) {
+            System.out.println("Validation Error: Approved amount (Rs " + approvedAmount + ") cannot exceed requested claim amount (Rs " + c.getClaimAmount() + ").");
+            return false;
+        }
+
+        PurchasedPolicy pol = findPolicyByNumber(c.getPolicyNumber());
+        if (pol != null && approvedAmount > pol.getCoverageAmount()) {
+            System.out.println("Validation Error: Approved amount cannot exceed policy coverage limit of Rs " + pol.getCoverageAmount());
+            return false;
+        }
+
+        c.setApprovedAmount(approvedAmount);
+        c.setStatus("APPROVED");
+        c.setDecisionDate(LocalDate.now());
+        c.setRemarks((remarks != null && !remarks.trim().isEmpty()) ? remarks.trim() : "Approved by administrator");
+
+        actionStack.push("Approved Claim: " + claimId + " for Rs " + approvedAmount);
+        FileHandler.saveClaims(this);
+
+        System.out.println("Claim '" + claimId + "' has been APPROVED for Rs " + approvedAmount);
+        return true;
+    }
+
+    public boolean rejectClaim(String claimId, String remarks) {
+        Claim c = findClaimById(claimId);
+        if (c == null) {
+            System.out.println("Error: Claim ID '" + claimId + "' not found.");
+            return false;
+        }
+        if (!"PENDING".equalsIgnoreCase(c.getStatus())) {
+            System.out.println("Notice: Claim '" + claimId + "' has already been processed (Status: " + c.getStatus() + ").");
+            return false;
+        }
+
+        c.setStatus("REJECTED");
+        c.setApprovedAmount(0.0);
+        c.setDecisionDate(LocalDate.now());
+        c.setRemarks((remarks != null && !remarks.trim().isEmpty()) ? remarks.trim() : "Rejected by administrator");
+
+        actionStack.push("Rejected Claim: " + claimId);
+        FileHandler.saveClaims(this);
+
+        System.out.println("Claim '" + claimId + "' has been REJECTED. Reason: " + c.getRemarks());
+        return true;
+    }
+
     public void displayAllClaims() {
         if (claimCount == 0) {
             System.out.println("No claims submitted yet.");
             return;
         }
-        System.out.println("\n-------------------------------------------------------------------------------------------------");
-        System.out.printf("%-10s %-12s %-30s %-15s %-12s\n", "Claim ID", "Policy No", "Description", "Claim Amount", "Status");
-        System.out.println("-------------------------------------------------------------------------------------------------");
+        System.out.println("\n--------------------------------------------------------------------------------------------------------------------------------------");
+        System.out.printf("%-10s %-12s %-10s %-25s %-15s %-15s %-12s %-12s\n",
+                "Claim ID", "Policy No", "Cust ID", "Description", "Requested (Rs)", "Approved (Rs)", "Status", "Date");
+        System.out.println("--------------------------------------------------------------------------------------------------------------------------------------");
         for (int i = 0; i < claimCount; i++) {
             Claim c = claims[i];
-            System.out.printf("%-10s %-12s %-30s Rs %-12.2f %-12s\n",
-                    c.getClaimId(), c.getPolicyNumber(), c.getDescription(), c.getClaimAmount(), c.getStatus());
+            System.out.printf("%-10s %-12s %-10s %-25s Rs %-12.2f Rs %-12.2f %-12s %-12s\n",
+                    c.getClaimId(), c.getPolicyNumber(), c.getCustomerId(), c.getDescription(),
+                    c.getClaimAmount(), c.getApprovedAmount(), c.getStatus(), c.getSubmissionDate());
         }
-        System.out.println("-------------------------------------------------------------------------------------------------");
+        System.out.println("--------------------------------------------------------------------------------------------------------------------------------------");
     }
 
-    /**
-     * Displays all claims for policies owned by a specific customer.
-     */
+    public void displayPendingClaims() {
+        boolean found = false;
+        System.out.println("\n--- PENDING CLAIMS FOR REVIEW ---");
+        System.out.println("--------------------------------------------------------------------------------------------------");
+        System.out.printf("%-10s %-12s %-10s %-25s %-15s %-12s\n",
+                "Claim ID", "Policy No", "Cust ID", "Description", "Requested (Rs)", "Submission Date");
+        System.out.println("--------------------------------------------------------------------------------------------------");
+        for (int i = 0; i < claimCount; i++) {
+            Claim c = claims[i];
+            if (c != null && "PENDING".equalsIgnoreCase(c.getStatus())) {
+                System.out.printf("%-10s %-12s %-10s %-25s Rs %-12.2f %-12s\n",
+                        c.getClaimId(), c.getPolicyNumber(), c.getCustomerId(), c.getDescription(),
+                        c.getClaimAmount(), c.getSubmissionDate());
+                found = true;
+            }
+        }
+        System.out.println("--------------------------------------------------------------------------------------------------");
+        if (!found) {
+            System.out.println("No pending claims waiting for review.");
+        }
+    }
+
     public void displayClaimsByCustomer(String customerId) {
         Customer cust = findCustomerById(customerId);
         if (cust == null) {
@@ -708,66 +961,42 @@ public class InsuranceManager {
         }
         boolean found = false;
         System.out.println("\n--- CLAIMS FOR CUSTOMER: " + cust.getName() + " (" + customerId + ") ---");
-        System.out.println("-------------------------------------------------------------------------------------------------");
-        System.out.printf("%-10s %-12s %-30s %-15s %-12s\n", "Claim ID", "Policy No", "Description", "Claim Amount", "Status");
-        System.out.println("-------------------------------------------------------------------------------------------------");
+        System.out.println("--------------------------------------------------------------------------------------------------------------------------------------");
+        System.out.printf("%-10s %-12s %-22s %-15s %-15s %-12s %-20s\n",
+                "Claim ID", "Policy No", "Description", "Requested (Rs)", "Approved (Rs)", "Status", "Remarks");
+        System.out.println("--------------------------------------------------------------------------------------------------------------------------------------");
         for (int i = 0; i < claimCount; i++) {
             Claim c = claims[i];
-            PurchasedPolicy pol = findPolicyByNumber(c.getPolicyNumber());
-            if (pol != null && customerId.equalsIgnoreCase(pol.getCustomerId())) {
-                System.out.printf("%-10s %-12s %-30s Rs %-12.2f %-12s\n",
-                        c.getClaimId(), c.getPolicyNumber(), c.getDescription(), c.getClaimAmount(), c.getStatus());
+            if (c != null && customerId.equalsIgnoreCase(c.getCustomerId())) {
+                System.out.printf("%-10s %-12s %-22s Rs %-12.2f Rs %-12.2f %-12s %-20s\n",
+                        c.getClaimId(), c.getPolicyNumber(), c.getDescription(),
+                        c.getClaimAmount(), c.getApprovedAmount(), c.getStatus(), c.getRemarks());
                 found = true;
             }
         }
-        System.out.println("-------------------------------------------------------------------------------------------------");
+        System.out.println("--------------------------------------------------------------------------------------------------------------------------------------");
         if (!found) {
             System.out.println("No claims found for this customer.");
         }
     }
 
-    /**
-     * Approves a pending claim.
-     */
-    public boolean approveClaim(String claimId) {
+    public void displayClaimDetails(String claimId) {
         Claim c = findClaimById(claimId);
         if (c == null) {
-            System.out.println("Error: Claim ID '" + claimId + "' not found.");
-            return false;
+            System.out.println("Claim ID '" + claimId + "' not found.");
+            return;
         }
-        if (!"PENDING".equalsIgnoreCase(c.getStatus())) {
-            System.out.println("Notice: Claim '" + claimId + "' has already been processed (Status: " + c.getStatus() + ").");
-            return false;
-        }
-        c.setStatus("APPROVED");
-
-        actionStack.push("Approved Claim: " + claimId + " (Rs " + c.getClaimAmount() + ")");
-        FileHandler.saveClaims(this);
-
-        System.out.println("Claim '" + claimId + "' for Rs " + c.getClaimAmount() + " has been APPROVED.");
-        return true;
-    }
-
-    /**
-     * Rejects a pending claim.
-     */
-    public boolean rejectClaim(String claimId) {
-        Claim c = findClaimById(claimId);
-        if (c == null) {
-            System.out.println("Error: Claim ID '" + claimId + "' not found.");
-            return false;
-        }
-        if (!"PENDING".equalsIgnoreCase(c.getStatus())) {
-            System.out.println("Notice: Claim '" + claimId + "' has already been processed (Status: " + c.getStatus() + ").");
-            return false;
-        }
-        c.setStatus("REJECTED");
-
-        actionStack.push("Rejected Claim: " + claimId);
-        FileHandler.saveClaims(this);
-
-        System.out.println("Claim '" + claimId + "' has been REJECTED.");
-        return true;
+        System.out.println("\n--- CLAIM AUDIT DETAILS ---");
+        System.out.println("Claim ID         : " + c.getClaimId());
+        System.out.println("Policy Number    : " + c.getPolicyNumber());
+        System.out.println("Customer ID      : " + c.getCustomerId());
+        System.out.println("Description      : " + c.getDescription());
+        System.out.println("Requested Amount : Rs " + c.getClaimAmount());
+        System.out.println("Approved Amount  : Rs " + c.getApprovedAmount());
+        System.out.println("Status           : " + c.getStatus());
+        System.out.println("Submission Date  : " + c.getSubmissionDate());
+        System.out.println("Decision Date    : " + (c.getDecisionDate() != null ? c.getDecisionDate() : "Pending"));
+        System.out.println("Admin Remarks    : " + c.getRemarks());
     }
 
     // =========================================================================
@@ -778,12 +1007,6 @@ public class InsuranceManager {
         return actionStack;
     }
 
-    /**
-     * Reversible Undo Operation:
-     * Undoes the most recent plan addition if it was the last action on the stack
-     * and no customers have purchased policies under that plan yet.
-     * Explains limitations clearly for SY viva.
-     */
     public boolean undoLastPlanAddition() {
         if (actionStack.isEmpty()) {
             System.out.println("Undo Failed: Action stack is empty. No operations to undo.");
@@ -797,12 +1020,10 @@ public class InsuranceManager {
             return false;
         }
 
-        // Parse plan ID from "Added Plan: <planId> (<planName>)"
         int start = "Added Plan: ".length();
         int spaceIdx = topAction.indexOf(" ", start);
         String planId = (spaceIdx != -1) ? topAction.substring(start, spaceIdx) : topAction.substring(start);
 
-        // Check if any policies have been purchased under this plan
         for (int i = 0; i < policyCount; i++) {
             if (policies[i] != null && planId.equalsIgnoreCase(policies[i].getPlanId())) {
                 System.out.println("Cannot Undo: Policies have already been purchased under Plan '" + planId + "'.");
@@ -810,11 +1031,10 @@ public class InsuranceManager {
             }
         }
 
-        // Safe to remove
         boolean removed = removePlan(planId);
         if (removed) {
-            actionStack.pop(); // Remove the original "Added Plan" entry
-            actionStack.pop(); // Remove the "Removed Plan" entry generated by removePlan
+            actionStack.pop();
+            actionStack.pop();
             actionStack.push("Undone Addition of Plan: " + planId);
             System.out.println("SUCCESS: Undo completed. Plan '" + planId + "' was rolled back.");
             return true;
@@ -826,21 +1046,24 @@ public class InsuranceManager {
     // 7. ADMIN DASHBOARD & ASYNCHRONOUS REPORT GENERATOR
     // =========================================================================
 
-    /**
-     * Displays standard synchronous dashboard.
-     */
     public void displayDashboard() {
+        checkAndRefreshPolicyStatuses(LocalDate.now());
+
         int activePolicies = 0;
+        int expiredPolicies = 0;
         int cancelledPolicies = 0;
+        int pendingPaymentPolicies = 0;
         for (int i = 0; i < policyCount; i++) {
             if ("ACTIVE".equalsIgnoreCase(policies[i].getStatus())) activePolicies++;
+            else if ("EXPIRED".equalsIgnoreCase(policies[i].getStatus())) expiredPolicies++;
             else if ("CANCELLED".equalsIgnoreCase(policies[i].getStatus())) cancelledPolicies++;
+            else if ("PENDING_PAYMENT".equalsIgnoreCase(policies[i].getStatus())) pendingPaymentPolicies++;
         }
 
         int successfulPayments = 0;
         double totalRevenue = 0.0;
         for (int i = 0; i < paymentCount; i++) {
-            if ("SUCCESS".equalsIgnoreCase(payments[i].getStatus())) {
+            if ("SUCCESSFUL".equalsIgnoreCase(payments[i].getStatus()) || "SUCCESS".equalsIgnoreCase(payments[i].getStatus())) {
                 successfulPayments++;
                 totalRevenue += payments[i].getAmount();
             }
@@ -854,7 +1077,7 @@ public class InsuranceManager {
             if ("PENDING".equalsIgnoreCase(claims[i].getStatus())) pendingClaims++;
             else if ("APPROVED".equalsIgnoreCase(claims[i].getStatus())) {
                 approvedClaims++;
-                totalApprovedClaimAmount += claims[i].getClaimAmount();
+                totalApprovedClaimAmount += claims[i].getApprovedAmount();
             } else if ("REJECTED".equalsIgnoreCase(claims[i].getStatus())) rejectedClaims++;
         }
 
@@ -866,6 +1089,8 @@ public class InsuranceManager {
         System.out.println("-----------------------------------------------------------------");
         System.out.println(" Total Purchased Policies   : " + policyCount);
         System.out.println("   - Active Policies        : " + activePolicies);
+        System.out.println("   - Pending Payment        : " + pendingPaymentPolicies);
+        System.out.println("   - Expired Policies       : " + expiredPolicies);
         System.out.println("   - Cancelled Policies     : " + cancelledPolicies);
         System.out.println("-----------------------------------------------------------------");
         System.out.println(" Total Payments Processed   : " + paymentCount);
@@ -880,10 +1105,9 @@ public class InsuranceManager {
         System.out.println("=================================================================");
     }
 
-    /**
-     * Generates summary audit report in a separate background thread (Task 3: Multithreading).
-     */
     public void generateAsyncReport() {
+        checkAndRefreshPolicyStatuses(LocalDate.now());
+
         int activePolicies = 0;
         int cancelledPolicies = 0;
         for (int i = 0; i < policyCount; i++) {
@@ -894,7 +1118,7 @@ public class InsuranceManager {
         int successfulPayments = 0;
         double totalRevenue = 0.0;
         for (int i = 0; i < paymentCount; i++) {
-            if ("SUCCESS".equalsIgnoreCase(payments[i].getStatus())) {
+            if ("SUCCESSFUL".equalsIgnoreCase(payments[i].getStatus()) || "SUCCESS".equalsIgnoreCase(payments[i].getStatus())) {
                 successfulPayments++;
                 totalRevenue += payments[i].getAmount();
             }
@@ -908,7 +1132,7 @@ public class InsuranceManager {
             if ("PENDING".equalsIgnoreCase(claims[i].getStatus())) pendingClaims++;
             else if ("APPROVED".equalsIgnoreCase(claims[i].getStatus())) {
                 approvedClaims++;
-                totalApprovedClaimAmount += claims[i].getClaimAmount();
+                totalApprovedClaimAmount += claims[i].getApprovedAmount();
             } else if ("REJECTED".equalsIgnoreCase(claims[i].getStatus())) rejectedClaims++;
         }
 
@@ -916,11 +1140,8 @@ public class InsuranceManager {
                 activePolicies, cancelledPolicies, successfulPayments, totalRevenue,
                 claimCount, pendingClaims, approvedClaims, rejectedClaims, totalApprovedClaimAmount);
 
-        // Start background thread using start()
         reportTask.start();
-
         try {
-            // Demonstrate join() ensuring the report is delivered before menu prompt returns
             reportTask.join();
         } catch (InterruptedException e) {
             System.out.println("[Main Thread] Interrupted while waiting for ReportTask: " + e.getMessage());
@@ -928,7 +1149,7 @@ public class InsuranceManager {
     }
 
     // =========================================================================
-    // 8. DATA LOADERS & ARRAY ACCESSORS FOR FILEHANDLER
+    // 8. DATA LOADERS & ARRAY ACCESSORS
     // =========================================================================
 
     public Customer[] getCustomers() { return customers; }
@@ -947,7 +1168,7 @@ public class InsuranceManager {
     public int getClaimCount() { return claimCount; }
 
     public boolean addLoadedCustomer(Customer c) {
-        if (customerCount < MAX_CUSTOMERS && c != null) {
+        if (customerCount < MAX_CUSTOMERS && c != null && findCustomerById(c.getCustomerId()) == null) {
             customers[customerCount++] = c;
             return true;
         }
@@ -955,7 +1176,7 @@ public class InsuranceManager {
     }
 
     public boolean addLoadedPlan(InsurancePlan p) {
-        if (planCount < MAX_PLANS && p != null) {
+        if (planCount < MAX_PLANS && p != null && findPlanById(p.getPlanId()) == null) {
             plans[planCount++] = p;
             return true;
         }
@@ -963,7 +1184,7 @@ public class InsuranceManager {
     }
 
     public boolean addLoadedPolicy(PurchasedPolicy p) {
-        if (policyCount < MAX_POLICIES && p != null) {
+        if (policyCount < MAX_POLICIES && p != null && findPolicyByNumber(p.getPolicyNumber()) == null) {
             policies[policyCount++] = p;
             return true;
         }
@@ -979,17 +1200,13 @@ public class InsuranceManager {
     }
 
     public boolean addLoadedClaim(Claim c) {
-        if (claimCount < MAX_CLAIMS && c != null) {
+        if (claimCount < MAX_CLAIMS && c != null && findClaimById(c.getClaimId()) == null) {
             claims[claimCount++] = c;
             return true;
         }
         return false;
     }
 
-    /**
-     * Calibrates auto-increment ID counters based on existing loaded data
-     * so that subsequent records never generate duplicate IDs.
-     */
     public void syncCounters() {
         for (int i = 0; i < customerCount; i++) {
             if (customers[i] != null && customers[i].getCustomerId().startsWith("C")) {

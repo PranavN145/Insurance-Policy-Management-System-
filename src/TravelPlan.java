@@ -8,16 +8,10 @@ public class TravelPlan extends InsurancePlan {
         super(planId, planName, coverageAmount, durationMonths, basePremium);
     }
 
-    /**
-     * Calculates premium for Travel Insurance.
-     * Illustrative formula for academic OOP project demonstration only.
-     * Not for real-world insurance pricing.
-     *
-     * Illustrative formula:
-     * - Starting amount: basePremium
-     * - Extended duration surcharge: if durationMonths > 6, +20% of basePremium.
-     * - Senior traveler surcharge: if customer != null and age > 60, +15% of basePremium.
-     */
+    public TravelPlan(String planId, String planName, double coverageAmount, int durationMonths, double basePremium, boolean available) {
+        super(planId, planName, coverageAmount, durationMonths, basePremium, available);
+    }
+
     @Override
     public double calculatePremium(Customer customer) {
         double premium = getBasePremium();

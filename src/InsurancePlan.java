@@ -4,18 +4,26 @@ public abstract class InsurancePlan {
     private double coverageAmount;
     private int durationMonths;
     private double basePremium;
+    private boolean available;
 
     // Default constructor
     public InsurancePlan() {
+        this.available = true;
     }
 
     // Parameterized constructor
     public InsurancePlan(String planId, String planName, double coverageAmount, int durationMonths, double basePremium) {
+        this(planId, planName, coverageAmount, durationMonths, basePremium, true);
+    }
+
+    // Full constructor including availability
+    public InsurancePlan(String planId, String planName, double coverageAmount, int durationMonths, double basePremium, boolean available) {
         this.planId = planId;
         this.planName = planName;
         setCoverageAmount(coverageAmount);
         setDurationMonths(durationMonths);
         setBasePremium(basePremium);
+        this.available = available;
     }
 
     // Getters and Setters
@@ -71,6 +79,14 @@ public abstract class InsurancePlan {
         }
     }
 
+    public boolean isAvailable() {
+        return available;
+    }
+
+    public void setAvailable(boolean available) {
+        this.available = available;
+    }
+
     /**
      * Abstract method for premium calculation.
      * Demonstrates Method Overriding across subclasses.
@@ -102,6 +118,6 @@ public abstract class InsurancePlan {
     public String toString() {
         return "InsurancePlan [PlanId=" + planId + ", Name=" + planName 
                 + ", Coverage=" + coverageAmount + ", Duration=" + durationMonths 
-                + " months, BasePremium=" + basePremium + "]";
+                + " months, BasePremium=" + basePremium + ", Available=" + available + "]";
     }
 }

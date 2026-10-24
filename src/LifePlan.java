@@ -8,17 +8,10 @@ public class LifePlan extends InsurancePlan {
         super(planId, planName, coverageAmount, durationMonths, basePremium);
     }
 
-    /**
-     * Calculates premium for Life Insurance.
-     * Illustrative formula for academic OOP project demonstration only.
-     * Not for real-world insurance pricing.
-     *
-     * Illustrative formula:
-     * - Starting amount: basePremium
-     * - Age > 60: 40% illustrative mortality risk factor (multiplier 1.40)
-     * - Age between 41 and 60: 20% illustrative mortality risk factor (multiplier 1.20)
-     * - Age <= 40: standard basePremium (multiplier 1.00)
-     */
+    public LifePlan(String planId, String planName, double coverageAmount, int durationMonths, double basePremium, boolean available) {
+        super(planId, planName, coverageAmount, durationMonths, basePremium, available);
+    }
+
     @Override
     public double calculatePremium(Customer customer) {
         double premium = getBasePremium();

@@ -1,19 +1,16 @@
 import java.io.*;
+import java.time.LocalDate;
 
 /**
  * FileHandler.java
  *
- * Implements Task 1 (Member 3): File Handling & Persistence
- * Reads and writes customer, plan, policy, payment, and claim records using:
- * - FileReader, BufferedReader
- * - FileWriter, BufferedWriter
- * - Delimited text files in a dedicated 'data/' directory
- *
- * Demonstrates:
- * - Safe file creation and directory verification
- * - Graceful handling of missing data files without application crash
- * - Fault-tolerant line-by-line parsing skipping malformed records
- * - Clean resource closing in finally blocks or try-with-resources
+ * Implements Architecture §9 & PRD §10.9, §12.2: File Handling & Persistence
+ * Manages saving and loading of all application records to delimited text files.
+ * 
+ * Features:
+ * - Robust line-by-line parsing with backwards compatibility for legacy records
+ * - Graceful fallback on missing or corrupted data files without crashing
+ * - Safe directory creation and atomic resource closing
  */
 public class FileHandler {
 
@@ -69,7 +66,9 @@ public class FileHandler {
                             + c.getName() + DELIMITER
                             + c.getAge() + DELIMITER
                             + c.getPhone() + DELIMITER
-                            + c.getAddress());
+                            + c.getEmail() + DELIMITER
+                            + c.getAddress() + DELIMITER
+                            + c.getRegistrationDate());
                     writer.newLine();
                 }
             }
@@ -98,7 +97,8 @@ public class FileHandler {
                             + p.getPlanName() + DELIMITER
                             + p.getCoverageAmount() + DELIMITER
                             + p.getDurationMonths() + DELIMITER
-                            + p.getBasePremium());
+                            + p.getBasePremium() + DELIMITER
+                            + p.isAvailable());
                     writer.newLine();
                 }
             }
@@ -124,7 +124,13 @@ public class FileHandler {
                     writer.write(p.getPolicyNumber() + DELIMITER
                             + p.getCustomerId() + DELIMITER
                             + p.getPlanId() + DELIMITER
-                            + p.getStatus());
+                            + p.getStatus() + DELIMITER
+                            + p.getPaymentStatus() + DELIMITER
+                            + p.getPremium() + DELIMITER
+                            + p.getCoverageAmount() + DELIMITER
+                            + p.getPurchaseDate() + DELIMITER
+                            + p.getStartDate() + DELIMITER
+                            + p.getExpiryDate());
                     writer.newLine();
                 }
             }
@@ -149,8 +155,10 @@ public class FileHandler {
                 if (p != null) {
                     writer.write(p.getPaymentId() + DELIMITER
                             + p.getPolicyNumber() + DELIMITER
+                            + p.getCustomerId() + DELIMITER
                             + p.getAmount() + DELIMITER
-                            + p.getStatus());
+                            + p.getStatus() + DELIMITER
+                            + p.getPaymentDate());
                     writer.newLine();
                 }
             }
@@ -173,11 +181,17 @@ public class FileHandler {
             for (int i = 0; i < count; i++) {
                 Claim c = claims[i];
                 if (c != null) {
+                    String decDate = (c.getDecisionDate() != null) ? c.getDecisionDate().toString() : "null";
                     writer.write(c.getClaimId() + DELIMITER
                             + c.getPolicyNumber() + DELIMITER
+                            + c.getCustomerId() + DELIMITER
                             + c.getDescription() + DELIMITER
                             + c.getClaimAmount() + DELIMITER
-                            + c.getStatus());
+                            + c.getApprovedAmount() + DELIMITER
+                            + c.getStatus() + DELIMITER
+                            + c.getSubmissionDate() + DELIMITER
+                            + decDate + DELIMITER
+                            + c.getRemarks());
                     writer.newLine();
                 }
             }
@@ -220,7 +234,7 @@ public class FileHandler {
     public static boolean loadCustomers(InsuranceManager mgr) {
         File file = new File(CUSTOMERS_FILE);
         if (!file.exists()) {
-            return false; // Safe return on missing file
+            return false;
         }
         BufferedReader reader = null;
         try {
@@ -236,15 +250,20 @@ public class FileHandler {
                         String name = parts[1].trim();
                         int age = Integer.parseInt(parts[2].trim());
                         String phone = parts[3].trim();
-                        String address = parts[4].trim();
+                        String email = (parts.length >= 6 && !parts[4].trim().isEmpty()) ? parts[4].trim() : "customer@insurance.com";
+                        String address = (parts.length >= 6) ? parts[5].trim() : parts[4].trim();
+                        LocalDate regDate = LocalDate.now();
+                        if (parts.length >= 7 && !parts[6].trim().isEmpty() && !parts[6].trim().equalsIgnoreCase("null")) {
+                            try {
+                                regDate = LocalDate.parse(parts[6].trim());
+                            } catch (Exception ignored) {}
+                        }
 
-                        Customer c = new Customer(id, name, age, phone, address);
+                        Customer c = new Customer(id, name, age, phone, email, address, regDate);
                         mgr.addLoadedCustomer(c);
                     } catch (NumberFormatException nfe) {
                         System.out.println("[FileHandler Warning] Skipping malformed customer record: " + line);
                     }
-                } else {
-                    System.out.println("[FileHandler Warning] Incomplete customer record skipped: " + line);
                 }
             }
             return true;
@@ -278,16 +297,17 @@ public class FileHandler {
                         double coverage = Double.parseDouble(parts[3].trim());
                         int duration = Integer.parseInt(parts[4].trim());
                         double basePrem = Double.parseDouble(parts[5].trim());
+                        boolean available = (parts.length >= 7) ? Boolean.parseBoolean(parts[6].trim()) : true;
 
                         InsurancePlan plan = null;
                         if ("Health".equalsIgnoreCase(type)) {
-                            plan = new HealthPlan(planId, name, coverage, duration, basePrem);
+                            plan = new HealthPlan(planId, name, coverage, duration, basePrem, available);
                         } else if ("Life".equalsIgnoreCase(type)) {
-                            plan = new LifePlan(planId, name, coverage, duration, basePrem);
+                            plan = new LifePlan(planId, name, coverage, duration, basePrem, available);
                         } else if ("Vehicle".equalsIgnoreCase(type)) {
-                            plan = new VehiclePlan(planId, name, coverage, duration, basePrem);
+                            plan = new VehiclePlan(planId, name, coverage, duration, basePrem, available);
                         } else if ("Travel".equalsIgnoreCase(type)) {
-                            plan = new TravelPlan(planId, name, coverage, duration, basePrem);
+                            plan = new TravelPlan(planId, name, coverage, duration, basePrem, available);
                         }
 
                         if (plan != null) {
@@ -320,13 +340,23 @@ public class FileHandler {
                 if (line.isEmpty()) continue;
                 String[] parts = line.split("\\|", -1);
                 if (parts.length >= 4) {
-                    String polNo = parts[0].trim();
-                    String custId = parts[1].trim();
-                    String planId = parts[2].trim();
-                    String status = parts[3].trim();
+                    try {
+                        String polNo = parts[0].trim();
+                        String custId = parts[1].trim();
+                        String planId = parts[2].trim();
+                        String status = parts[3].trim();
+                        String paymentStatus = (parts.length >= 5) ? parts[4].trim() : ("ACTIVE".equalsIgnoreCase(status) ? "PAID" : "PENDING");
+                        double premium = (parts.length >= 6) ? Double.parseDouble(parts[5].trim()) : 0.0;
+                        double coverage = (parts.length >= 7) ? Double.parseDouble(parts[6].trim()) : 0.0;
+                        LocalDate purDate = (parts.length >= 8 && !parts[7].trim().isEmpty()) ? LocalDate.parse(parts[7].trim()) : LocalDate.now();
+                        LocalDate startDate = (parts.length >= 9 && !parts[8].trim().isEmpty()) ? LocalDate.parse(parts[8].trim()) : LocalDate.now();
+                        LocalDate expDate = (parts.length >= 10 && !parts[9].trim().isEmpty()) ? LocalDate.parse(parts[9].trim()) : startDate.plusMonths(12);
 
-                    PurchasedPolicy p = new PurchasedPolicy(polNo, custId, planId, status);
-                    mgr.addLoadedPolicy(p);
+                        PurchasedPolicy p = new PurchasedPolicy(polNo, custId, planId, status, paymentStatus, premium, coverage, purDate, startDate, expDate);
+                        mgr.addLoadedPolicy(p);
+                    } catch (Exception e) {
+                        System.out.println("[FileHandler Warning] Skipping malformed policy record: " + line);
+                    }
                 }
             }
             return true;
@@ -353,12 +383,14 @@ public class FileHandler {
                     try {
                         String payId = parts[0].trim();
                         String polNo = parts[1].trim();
-                        double amount = Double.parseDouble(parts[2].trim());
-                        String status = parts[3].trim();
+                        String custId = (parts.length >= 6) ? parts[2].trim() : "CUST";
+                        double amount = (parts.length >= 6) ? Double.parseDouble(parts[3].trim()) : Double.parseDouble(parts[2].trim());
+                        String status = (parts.length >= 6) ? parts[4].trim() : parts[3].trim();
+                        LocalDate payDate = (parts.length >= 6 && !parts[5].trim().isEmpty()) ? LocalDate.parse(parts[5].trim()) : LocalDate.now();
 
-                        Payment p = new Payment(payId, polNo, amount, status);
+                        Payment p = new Payment(payId, polNo, custId, amount, status, payDate);
                         mgr.addLoadedPayment(p);
-                    } catch (NumberFormatException nfe) {
+                    } catch (Exception nfe) {
                         System.out.println("[FileHandler Warning] Skipping malformed payment record: " + line);
                     }
                 }
@@ -387,13 +419,18 @@ public class FileHandler {
                     try {
                         String claimId = parts[0].trim();
                         String polNo = parts[1].trim();
-                        String desc = parts[2].trim();
-                        double amount = Double.parseDouble(parts[3].trim());
-                        String status = parts[4].trim();
+                        String custId = (parts.length >= 10) ? parts[2].trim() : "CUST";
+                        String desc = (parts.length >= 10) ? parts[3].trim() : parts[2].trim();
+                        double claimAmt = (parts.length >= 10) ? Double.parseDouble(parts[4].trim()) : Double.parseDouble(parts[3].trim());
+                        double appAmt = (parts.length >= 10) ? Double.parseDouble(parts[5].trim()) : ("APPROVED".equalsIgnoreCase(parts[4].trim()) ? claimAmt : 0.0);
+                        String status = (parts.length >= 10) ? parts[6].trim() : parts[4].trim();
+                        LocalDate subDate = (parts.length >= 10 && !parts[7].trim().isEmpty() && !parts[7].trim().equalsIgnoreCase("null")) ? LocalDate.parse(parts[7].trim()) : LocalDate.now();
+                        LocalDate decDate = (parts.length >= 10 && !parts[8].trim().isEmpty() && !parts[8].trim().equalsIgnoreCase("null")) ? LocalDate.parse(parts[8].trim()) : null;
+                        String remarks = (parts.length >= 10) ? parts[9].trim() : "N/A";
 
-                        Claim c = new Claim(claimId, polNo, desc, amount, status);
+                        Claim c = new Claim(claimId, polNo, custId, desc, claimAmt, appAmt, status, subDate, decDate, remarks);
                         mgr.addLoadedClaim(c);
-                    } catch (NumberFormatException nfe) {
+                    } catch (Exception nfe) {
                         System.out.println("[FileHandler Warning] Skipping malformed claim record: " + line);
                     }
                 }
@@ -408,7 +445,7 @@ public class FileHandler {
     }
 
     // =========================================================================
-    // CLEAN RESOURCE CLOSING HELPERS
+    // RESOURCE CLOSING HELPERS
     // =========================================================================
 
     private static void closeWriter(BufferedWriter w) {

@@ -8,16 +8,10 @@ public class VehiclePlan extends InsurancePlan {
         super(planId, planName, coverageAmount, durationMonths, basePremium);
     }
 
-    /**
-     * Calculates premium for Vehicle Insurance.
-     * Illustrative formula for academic OOP project demonstration only.
-     * Not for real-world insurance pricing.
-     *
-     * Illustrative formula:
-     * - Starting amount: basePremium
-     * - Young / novice driver risk factor: if customer != null and age < 25 (and > 0), +15% of basePremium.
-     * - Multi-year policy adjustment: if durationMonths > 12, +10% of basePremium for multi-year coverage.
-     */
+    public VehiclePlan(String planId, String planName, double coverageAmount, int durationMonths, double basePremium, boolean available) {
+        super(planId, planName, coverageAmount, durationMonths, basePremium, available);
+    }
+
     @Override
     public double calculatePremium(Customer customer) {
         double premium = getBasePremium();

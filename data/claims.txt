@@ -1,1 +1,1 @@
-CLM701|POL1001|Cancer|100000.0|APPROVED
+CLM701|POL1001|C101|baggage lost|10000.0|0.0|PENDING|2026-10-24|null|Under administrative review
